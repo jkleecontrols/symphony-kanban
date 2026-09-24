@@ -1,0 +1,16 @@
+{
+  "name": "symphony-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "symphony-local": "./src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js start",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

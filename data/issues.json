@@ -1,0 +1,73 @@
+[
+  {
+    "id": "local-1",
+    "native_ref": {
+      "source": "local-json"
+    },
+    "identifier": "KAN-101",
+    "title": "Add onboarding checklist",
+    "description": "Create a simple onboarding checklist for the project.",
+    "priority": 1,
+    "state": "Done",
+    "branch_name": "kan-101-onboarding-checklist",
+    "url": null,
+    "assignee_id": null,
+    "labels": [
+      "symphony",
+      "docs"
+    ],
+    "blocked_by": [],
+    "dispatchable": false,
+    "created_at": "2026-09-24T00:00:00.000Z",
+    "updated_at": "2026-09-24T17:01:16.385Z"
+  },
+  {
+    "id": "local-2",
+    "native_ref": {
+      "source": "local-json"
+    },
+    "identifier": "KAN-102",
+    "title": "Wire dashboard smoke test",
+    "description": "Add a smoke test command and document how to run it.",
+    "priority": 2,
+    "state": "Done",
+    "branch_name": "kan-102-dashboard-smoke-test",
+    "url": null,
+    "assignee_id": null,
+    "labels": [
+      "symphony",
+      "test"
+    ],
+    "blocked_by": [],
+    "dispatchable": false,
+    "created_at": "2026-09-24T00:00:00.000Z",
+    "updated_at": "2026-09-24T16:50:21.654Z"
+  },
+  {
+    "id": "local-3",
+    "native_ref": {
+      "source": "local-json"
+    },
+    "identifier": "KAN-103",
+    "title": "Blocked task example",
+    "description": "This one is intentionally non-dispatchable.",
+    "priority": 3,
+    "state": "Ready",
+    "branch_name": null,
+    "url": null,
+    "assignee_id": null,
+    "labels": [
+      "symphony"
+    ],
+    "blocked_by": [
+      {
+        "id": "local-2",
+        "identifier": "KAN-102",
+        "state": "Ready"
+      }
+    ],
+    "dispatchable": false,
+    "created_at": "2026-09-24T00:00:00.000Z",
+    "updated_at": "2026-09-24T00:00:00.000Z"
+  }
+]

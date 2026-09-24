@@ -1,0 +1,5 @@
+node_modules/
+data/symphony.log.jsonl
+data/workspaces/
+*.lock
+.DS_Store

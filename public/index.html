@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Symphony Local</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Symphony Local</h1>
+        <p>Issue tracker orchestration, agent claims, live sessions, and operator controls.</p>
+      </div>
+      <div class="actions">
+        <button id="pollButton" type="button">Poll Now</button>
+        <button id="refreshButton" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="metrics" id="metrics"></section>
+      <section class="board" id="board"></section>
+      <section class="lower">
+        <article>
+          <h2>Runtime</h2>
+          <pre id="runtime"></pre>
+        </article>
+        <article>
+          <h2>Logs</h2>
+          <div id="logs" class="logs"></div>
+        </article>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
