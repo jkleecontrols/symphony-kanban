@@ -18,12 +18,12 @@ workspace:
   root: data/workspaces
 hooks:
   timeout_ms: 10000
+  # after_create runs only for managed workspaces under workspace.root, never for a
+  # task that names its own workspace_path.
   after_create: |
     printf "workspace ready\n" > .symphony_workspace
-  before_run: |
-    printf "attempt started at %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .symphony_attempts
-  after_run: |
-    printf "attempt finished at %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .symphony_attempts
+  # before_run and after_run run in the task's folder, whichever folder that is. Leave
+  # them unset unless you want files written into the folders your tasks point at.
 agents:
   mock:
     label: Mock demo agent

@@ -8,10 +8,19 @@ let logs = [];
 let editingId = null;
 let deleteArmedId = null;
 
+const THEMES = ["apple", "pink", "blue"];
+const THEME_KEY = "symphony.theme";
+
 const el = (id) => document.getElementById(id);
 const boardEl = el("board");
 const composerEl = el("composer");
 const composerForm = el("composerForm");
+
+applyTheme(storedTheme() || "apple");
+el("themes").addEventListener("click", (event) => {
+  const pick = event.target.closest("[data-theme-pick]");
+  if (pick) applyTheme(pick.dataset.themePick);
+});
 
 el("refreshButton").addEventListener("click", () => refresh());
 el("pollButton").addEventListener("click", async () => {
@@ -74,6 +83,7 @@ async function onComposerSubmit(event) {
     state: form.state.value,
     agent: form.agent.value || null,
     labels: parseLabels(form.labels.value),
+    workspace_path: form.workspace_path.value.trim() || null,
     dispatchable: form.dispatchable.checked
   };
 
@@ -170,6 +180,7 @@ async function onBoardSubmit(event) {
       priority: fields.priority.value === "" ? null : Number(fields.priority.value),
       labels: parseLabels(fields.labels.value),
       agent: fields.agent.value || null,
+      workspace_path: fields.workspace_path.value.trim() || null,
       dispatchable: fields.dispatchable.checked
     });
   } catch (error) {
@@ -236,6 +247,7 @@ function card(issue, claim, failure) {
       </div>
       <h3>${escapeHtml(issue.title)}</h3>
       ${issue.description ? `<p class="description">${escapeHtml(issue.description)}</p>` : ""}
+      ${issue.workspace_path ? `<span class="folder">${escapeHtml(shortenPath(issue.workspace_path))}</span>` : ""}
       <div class="tags">${issue.labels.map((label) => `<span class="tag">${escapeHtml(label)}</span>`).join("")}</div>
       <p class="meta">
         ${issue.dispatchable ? "auto-dispatch on" : "auto-dispatch off"}
@@ -274,6 +286,7 @@ function editCard(issue) {
         <label><span>Description</span><textarea name="description" rows="3">${escapeHtml(issue.description || "")}</textarea></label>
         <label><span>Priority</span><input name="priority" type="number" min="1" step="1" value="${issue.priority ?? ""}"></label>
         <label><span>Labels</span><input name="labels" type="text" value="${escapeAttr(issue.labels.join(", "))}"></label>
+        <label><span>Project folder</span><input name="workspace_path" type="text" value="${escapeAttr(issue.workspace_path || "")}" placeholder="blank = managed workspace"></label>
         <label><span>Assigned AI</span>
           <select name="agent">
             <option value="">No AI</option>
@@ -313,6 +326,31 @@ function agentLabel(name) {
 
 function fillSelect(select, options) {
   select.innerHTML = options.map((option) => `<option value="${escapeAttr(option.value)}">${escapeHtml(option.text)}</option>`).join("");
+}
+
+function applyTheme(theme) {
+  const picked = THEMES.includes(theme) ? theme : "apple";
+  document.documentElement.dataset.theme = picked;
+  for (const button of el("themes").querySelectorAll("[data-theme-pick]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.themePick === picked));
+  }
+  try {
+    localStorage.setItem(THEME_KEY, picked);
+  } catch {
+    // a private window or blocked storage: the theme just does not persist
+  }
+}
+
+function storedTheme() {
+  try {
+    return localStorage.getItem(THEME_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function shortenPath(value) {
+  return String(value).replace(/^\/Users\/[^/]+/, "~");
 }
 
 function parseLabels(value) {

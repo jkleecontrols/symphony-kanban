@@ -12,8 +12,53 @@ It includes:
 - Structured JSONL logs and an operator HTTP surface with Kanban, runtime state, issues, logs, and API actions.
 - Task CRUD from the board itself: add, edit, and delete tasks without hand-editing JSON.
 - Per-task agent routing: each task picks which configured AI runs it.
+- Per-task project folder: a task can run in a folder you already work in, instead of a generated workspace.
+- Three themes (Apple, Pink, Blue), switchable from the board.
 
 This implementation uses a `local_json` tracker so you can run Symphony without external credentials. New tracker providers can be added behind the adapter interface in `src/tracker.js`.
+
+## Setup
+
+`data/issues.json` holds your real task list and is not tracked by git. Create it
+from the example before the first run:
+
+```sh
+cp data/issues.example.json data/issues.json
+npm start
+```
+
+## One Task Per Project Folder
+
+A task's `workspace_path` names a folder you already work in. The agent for that task
+runs with that folder as its working directory, so whichever AI picks the task up is
+looking at the same files and updating the same notes.
+
+```json
+{
+  "title": "my-paper",
+  "workspace_path": "~/research/my-paper",
+  "agent": "omniroute"
+}
+```
+
+`~` and `$VARS` are expanded, and a relative path resolves against the project root.
+The folder must already exist: the API returns 400 rather than creating one, so a typo
+does not scatter empty directories.
+
+A folder named this way belongs to you, not to Symphony. It is never created, never
+seeded by the `after_create` hook, and `WorkspaceManager.remove()` refuses to delete it.
+A task with no `workspace_path` still gets a managed workspace under `workspace.root`
+and behaves exactly as before.
+
+Keep `before_run` and `after_run` unset unless you want files written into the folders
+your tasks point at. Both hooks run in the task's folder, whichever folder that is.
+
+## Themes
+
+The board ships three themes — Apple (clean, default), Pink and Blue — switchable from
+the top bar and remembered per browser. Each is a block of custom properties at the top
+of `public/styles.css`; add a fourth by copying one and adding its name to `THEMES` in
+`public/app.js`.
 
 ## Managing Tasks From the Board
 
@@ -66,6 +111,9 @@ back, so a typo never silently skips the work. Each turn's child process receive
 | `SYMPHONY_ISSUE_TITLE` / `_STATE` / `_LABELS` | issue fields, labels comma-separated |
 | `SYMPHONY_ATTEMPT` / `_TURN` | retry and turn counters |
 | `SYMPHONY_TRACKER_KIND` / `_PATH` | tracker location, for writing results back |
+
+The agent's working directory is the task's `workspace_path` when it has one, and a
+managed workspace otherwise.
 
 An agent reports progress by printing one JSON object per line to stdout and marks
 work finished by updating the tracker itself. `scripts/mock-agent.js` is the reference

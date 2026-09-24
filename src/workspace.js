@@ -10,6 +10,7 @@ export class WorkspaceManager {
   }
 
   async prepare(issue) {
+    if (issue.workspace_path) return this.prepareExternal(issue);
     await fs.mkdir(this.config.workspace.root, { recursive: true });
     const workspaceKey = sanitizeWorkspaceKey(issue.identifier);
     const workspacePath = assertPathInside(this.config.workspace.root, path.join(this.config.workspace.root, workspaceKey));
@@ -24,6 +25,25 @@ export class WorkspaceManager {
     return { path: workspacePath, workspace_key: workspaceKey, created_now: !existed };
   }
 
+  // A task may point at a folder the user already works in. That folder is theirs:
+  // we never create it, never seed it with hooks, and never remove it.
+  async prepareExternal(issue) {
+    const workspacePath = path.resolve(issue.workspace_path);
+    let stat;
+    try {
+      stat = await fs.stat(workspacePath);
+    } catch {
+      throw new Error(`workspace_path does not exist: ${workspacePath}`);
+    }
+    if (!stat.isDirectory()) throw new Error(`workspace_path is not a directory: ${workspacePath}`);
+    this.logger.event("info", "external_workspace_used", {
+      issue_id: issue.id,
+      identifier: issue.identifier,
+      path: workspacePath
+    });
+    return { path: workspacePath, workspace_key: null, created_now: false, external: true };
+  }
+
   async beforeRun(workspacePath) {
     await this.runHook("before_run", workspacePath, true);
   }
@@ -33,6 +53,14 @@ export class WorkspaceManager {
   }
 
   async remove(issue) {
+    if (issue.workspace_path) {
+      this.logger.event("warn", "external_workspace_remove_refused", {
+        issue_id: issue.id,
+        identifier: issue.identifier,
+        path: issue.workspace_path
+      });
+      return;
+    }
     const workspaceKey = sanitizeWorkspaceKey(issue.identifier);
     const workspacePath = assertPathInside(this.config.workspace.root, path.join(this.config.workspace.root, workspaceKey));
     if (!(await pathExists(workspacePath))) return;

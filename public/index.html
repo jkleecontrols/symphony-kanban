@@ -13,6 +13,11 @@
         <p>Queue your work on the board and route each task to a local AI session.</p>
       </div>
       <div class="actions">
+        <div class="themes" id="themes" role="group" aria-label="Theme">
+          <button type="button" data-theme-pick="apple">Apple</button>
+          <button type="button" data-theme-pick="pink">Pink</button>
+          <button type="button" data-theme-pick="blue">Blue</button>
+        </div>
         <button id="composerToggle" type="button" class="primary">+ New Task</button>
         <button id="pollButton" type="button">Poll Now</button>
         <button id="refreshButton" type="button">Refresh</button>
@@ -49,6 +54,10 @@
             <label class="wide">
               <span>Labels <em>comma separated</em></span>
               <input name="labels" type="text" placeholder="docs, urgent">
+            </label>
+            <label class="wide">
+              <span>Project folder <em>the agent runs here</em></span>
+              <input name="workspace_path" type="text" placeholder="~/research/my-project — leave blank for a managed workspace">
             </label>
             <label class="check wide">
               <input name="dispatchable" type="checkbox" checked>

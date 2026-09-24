@@ -1,7 +1,8 @@
 import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { normalizeState, uniqueLowerLabels } from "./utils.js";
+import fsp from "node:fs/promises";
+import { expandPathValue, normalizeState, uniqueLowerLabels } from "./utils.js";
 
 export function createServer(orchestrator, logger) {
   const publicDir = path.resolve(orchestrator.workflow.dir, "public");
@@ -33,7 +34,7 @@ export function createServer(orchestrator, logger) {
         if (!id) return json(res, { error: "issue id is required" }, 400);
 
         if (req.method === "PATCH") {
-          const patch = buildPatch(orchestrator, await readJson(req));
+          const patch = await buildPatch(orchestrator, await readJson(req));
           const updated = await orchestrator.tracker.updateIssue(id, patch);
           if (!updated) return json(res, { error: `unknown issue: ${id}` }, 404);
           logger.event("info", "issue_updated", { issue_id: id, identifier: updated.identifier, fields: Object.keys(patch) });
@@ -111,6 +112,7 @@ async function createIssue(orchestrator, body) {
   if (!state) throw invalid("no state available; check tracker.active_states in WORKFLOW.md");
 
   const agent = resolveRequestedAgent(body.agent, config);
+  const workspacePath = await resolveWorkspacePath(body.workspace_path, orchestrator);
   const labels = uniqueLowerLabels([...(Array.isArray(body.labels) ? body.labels : []), ...config.tracker.required_labels]);
 
   return orchestrator.tracker.createIssue({
@@ -120,11 +122,12 @@ async function createIssue(orchestrator, body) {
     state,
     labels,
     agent,
+    workspace_path: workspacePath,
     dispatchable: body.dispatchable === undefined ? true : Boolean(body.dispatchable)
   });
 }
 
-function buildPatch(orchestrator, body) {
+async function buildPatch(orchestrator, body) {
   const config = orchestrator.config;
   const known = boardConfig(orchestrator);
   const patch = {};
@@ -142,6 +145,7 @@ function buildPatch(orchestrator, body) {
     patch.labels = uniqueLowerLabels([...body.labels, ...config.tracker.required_labels]);
   }
   if ("agent" in body) patch.agent = resolveRequestedAgent(body.agent, config);
+  if ("workspace_path" in body) patch.workspace_path = await resolveWorkspacePath(body.workspace_path, orchestrator);
   if ("state" in body) {
     const state = resolveRequestedState(body.state, known);
     if (!state) throw invalid(`unknown state: ${body.state}. known states: ${known.states.join(", ")}`);
@@ -156,6 +160,21 @@ function resolveRequestedState(requested, known) {
   if (requested == null || requested === "") return null;
   const wanted = normalizeState(requested);
   return known.states.find((state) => normalizeState(state) === wanted) ?? null;
+}
+
+// A task may name a folder the user already works in. It must already exist: this
+// never creates a directory, so a typo surfaces as a 400 rather than a stray folder.
+async function resolveWorkspacePath(requested, orchestrator) {
+  if (requested == null || String(requested).trim() === "") return null;
+  const expanded = expandPathValue(String(requested).trim(), orchestrator.workflow.dir);
+  let stat;
+  try {
+    stat = await fsp.stat(expanded);
+  } catch {
+    throw invalid(`workspace_path does not exist: ${expanded}`);
+  }
+  if (!stat.isDirectory()) throw invalid(`workspace_path is not a directory: ${expanded}`);
+  return expanded;
 }
 
 function resolveRequestedAgent(requested, config) {

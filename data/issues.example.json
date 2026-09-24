@@ -1,0 +1,21 @@
+[
+  {
+    "id": "local-1",
+    "native_ref": { "source": "local-json" },
+    "identifier": "KAN-1",
+    "title": "my-project",
+    "description": "One task per project folder. Agents keep the folder's notes current.",
+    "priority": 1,
+    "state": "Ready",
+    "branch_name": null,
+    "url": null,
+    "assignee_id": null,
+    "labels": ["symphony"],
+    "blocked_by": [],
+    "dispatchable": false,
+    "agent": null,
+    "workspace_path": "~/path/to/my-project",
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "updated_at": "2026-01-01T00:00:00.000Z"
+  }
+]

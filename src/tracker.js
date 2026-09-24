@@ -14,6 +14,7 @@ const MUTABLE_FIELDS = new Set([
   "labels",
   "dispatchable",
   "agent",
+  "workspace_path",
   "branch_name",
   "blocked_by"
 ]);
@@ -70,6 +71,7 @@ export class LocalJsonTracker {
         blocked_by: normalizeBlockers(input.blocked_by),
         dispatchable: Boolean(input.dispatchable),
         agent: input.agent == null || input.agent === "" ? null : String(input.agent),
+        workspace_path: input.workspace_path == null || input.workspace_path === "" ? null : String(input.workspace_path),
         created_at: now,
         updated_at: now
       };
@@ -90,6 +92,7 @@ export class LocalJsonTracker {
         else if (key === "dispatchable") issue.dispatchable = Boolean(value);
         else if (key === "priority") issue.priority = value == null || value === "" ? null : Number(value);
         else if (key === "agent") issue.agent = value == null || value === "" ? null : String(value);
+        else if (key === "workspace_path") issue.workspace_path = value == null || value === "" ? null : String(value);
         else if (key === "title") issue.title = String(value ?? "").trim();
         else issue[key] = value == null ? null : String(value);
       }
@@ -152,6 +155,7 @@ export function normalizeIssue(input) {
     blocked_by: normalizeBlockers(input.blocked_by),
     dispatchable: Boolean(input.dispatchable),
     agent: input.agent == null || input.agent === "" ? null : String(input.agent),
+    workspace_path: input.workspace_path == null || input.workspace_path === "" ? null : String(input.workspace_path),
     created_at: input.created_at ?? null,
     updated_at: input.updated_at ?? null
   };

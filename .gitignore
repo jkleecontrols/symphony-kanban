@@ -1,5 +1,11 @@
 node_modules/
+
+# Your real task list. Contains local folder paths and work descriptions.
+# Copy data/issues.example.json to data/issues.json to get started.
+data/issues.json
+
 data/symphony.log.jsonl
 data/workspaces/
 *.lock
+*.tmp
 .DS_Store
