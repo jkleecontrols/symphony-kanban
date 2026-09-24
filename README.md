@@ -14,6 +14,8 @@ It includes:
 - Per-task agent routing: each task picks which configured AI runs it.
 - Per-task project folder: a task can run in a folder you already work in, instead of a generated workspace.
 - Three themes (Apple, Pink, Blue), switchable from the board.
+- An Archive column and a one-click Archive button, so finished work leaves the Done column.
+- Live running indicators: a spinner and a pulsing dot on every card with an active session.
 
 This implementation uses a `local_json` tracker so you can run Symphony without external credentials. New tracker providers can be added behind the adapter interface in `src/tracker.js`.
 
@@ -52,6 +54,41 @@ and behaves exactly as before.
 
 Keep `before_run` and `after_run` unset unless you want files written into the folders
 your tasks point at. Both hooks run in the task's folder, whichever folder that is.
+
+## Wiring Up a Real Agent
+
+`claude` and `codex` resume the folder's own conversation, matching what you would do by
+hand: `cd` into the folder and continue where you left off.
+
+```sh
+claude --continue --print "$SYMPHONY_PROMPT"   # falls back to a fresh session
+codex exec resume --last "$SYMPHONY_PROMPT"    # falls back to codex exec
+```
+
+Two things every real agent command needs:
+
+**End by calling `scripts/finish.js`.** The orchestrator dispatches any task that is
+active and dispatchable. `scripts/mock-agent.js` sets its own state to `Done`, so it
+stops; a real CLI does not, and the task would be dispatched again on every poll. Ending
+the command with `node "$SYMPHONY_HOME/scripts/finish.js" "Human Review"` moves the task
+out of the active states and stops the loop. `SYMPHONY_HOME` is the directory holding
+`WORKFLOW.md`, so this works from any folder.
+
+**Check permissions before trusting it unattended.** `claude --print` and `codex exec`
+run with no one at the keyboard. Whether they can edit files without a prompt depends on
+your own CLI configuration. Run one task manually and watch what happens before turning
+auto-dispatch on for a folder that matters. This project deliberately ships no
+permission-skipping flags.
+
+`claude-omni` routes Claude Code through OmniRoute, which is a router rather than an
+agent of its own: it points an existing CLI at different models with fallback. That entry
+is untested here and needs one real run before you rely on it.
+
+## Archive
+
+`Archive` is a terminal state sitting between `Done` and `Canceled`. Cards in any
+terminal state get a one-click `Archive` button. Every column is capped at 62% of the
+viewport height and scrolls internally, so a long column never stretches the page.
 
 ## Themes
 

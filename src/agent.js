@@ -158,6 +158,7 @@ export class AgentRunner {
       SYMPHONY_ATTEMPT: attempt == null ? "" : String(attempt),
       SYMPHONY_TURN: String(turn),
       SYMPHONY_AGENT: selectedAgent?.name ?? "",
+      SYMPHONY_HOME: this.workflow.dir,
       SYMPHONY_ISSUE_TITLE: issue.title ?? "",
       SYMPHONY_ISSUE_STATE: issue.state ?? "",
       SYMPHONY_ISSUE_LABELS: (issue.labels || []).join(","),

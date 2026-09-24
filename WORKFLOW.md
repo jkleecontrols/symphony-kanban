@@ -11,6 +11,7 @@ tracker:
     - Human Review
   terminal_states:
     - Done
+    - Archive
     - Canceled
 polling:
   interval_ms: 5000
@@ -29,25 +30,33 @@ agents:
     label: Mock demo agent
     description: Fake agent. Proves the board and orchestrator work. Does no real work.
     command: |
-      node ../../../scripts/mock-agent.js
+      node "$SYMPHONY_HOME/scripts/mock-agent.js"
   claude:
     label: Claude Code
-    description: NOT CONFIGURED YET. Replace command with your real claude invocation.
+    description: Continues the folder's most recent Claude conversation, like claude --continue.
     command: |
-      printf '{"type":"codex_event","event":"agent_not_configured","message":"agent claude has no real command yet - edit agents.claude.command in WORKFLOW.md"}\n'
-      exit 1
+      set -e
+      proj="$HOME/.claude/projects/$(printf '%s' "$PWD" | sed 's|/|-|g')"
+      if [ -d "$proj" ]; then
+        claude --continue --print "$SYMPHONY_PROMPT"
+      else
+        claude --print "$SYMPHONY_PROMPT"
+      fi
+      node "$SYMPHONY_HOME/scripts/finish.js" "Human Review"
   codex:
     label: Codex CLI
-    description: NOT CONFIGURED YET. Replace command with your real codex invocation.
+    description: Resumes the folder's most recent Codex session, falling back to a new one.
     command: |
-      printf '{"type":"codex_event","event":"agent_not_configured","message":"agent codex has no real command yet - edit agents.codex.command in WORKFLOW.md"}\n'
-      exit 1
-  omniroute:
-    label: OmniRoute
-    description: NOT CONFIGURED YET. For simple tasks. Replace command with your real omniroute invocation.
+      set -e
+      codex exec resume --last "$SYMPHONY_PROMPT" || codex exec "$SYMPHONY_PROMPT"
+      node "$SYMPHONY_HOME/scripts/finish.js" "Human Review"
+  claude-omni:
+    label: Claude via OmniRoute
+    description: NEEDS ONE TEST RUN. Routes Claude Code through OmniRoute for fallback and cheaper models.
     command: |
-      printf '{"type":"codex_event","event":"agent_not_configured","message":"agent omniroute has no real command yet - edit agents.omniroute.command in WORKFLOW.md"}\n'
-      exit 1
+      set -e
+      omniroute run claude --continue --print "$SYMPHONY_PROMPT"
+      node "$SYMPHONY_HOME/scripts/finish.js" "Human Review"
 agent:
   max_concurrent_agents: 2
   default_agent: mock
@@ -57,7 +66,7 @@ agent:
     Ready: 2
     In Progress: 1
 codex:
-  command: node ../../../scripts/mock-agent.js
+  command: node "$SYMPHONY_HOME/scripts/mock-agent.js"
   turn_timeout_ms: 30000
   read_timeout_ms: 5000
   stall_timeout_ms: 15000

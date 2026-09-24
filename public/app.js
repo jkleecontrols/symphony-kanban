@@ -141,6 +141,16 @@ async function onBoardClick(event) {
     return refresh();
   }
 
+  if (action === "archive") {
+    try {
+      await send(`/api/issues/${encodeURIComponent(issueId)}`, "PATCH", { state: "Archive" });
+    } catch (error) {
+      return showBanner(`Could not archive the task: ${error.message}`);
+    }
+    clearBanner();
+    return refresh();
+  }
+
   if (action === "retry") {
     try {
       await send(`/api/retry/${encodeURIComponent(issueId)}`, "POST");
@@ -198,7 +208,7 @@ function renderMetrics() {
   const dispatchable = issues.filter((issue) => issue.dispatchable && required.every((label) => issue.labels.includes(label))).length;
   el("metrics").innerHTML = [
     metric("Tasks", issues.length),
-    metric("Running", snapshot.claims.length),
+    metric("Running", snapshot.claims.length, snapshot.claims.length > 0),
     metric("Dispatchable", dispatchable),
     metric("Terminal", issues.filter((issue) => terminal.has(lower(issue.state))).length)
   ].join("");
@@ -244,6 +254,7 @@ function card(issue, claim, failure) {
       <div class="eyebrow">
         ${escapeHtml(issue.identifier)} · P${issue.priority ?? "-"}
         ${agentName ? `<span class="agent-badge">${escapeHtml(agentLabel(agentName))}</span>` : `<span class="agent-badge muted">no AI</span>`}
+        ${claim ? '<span class="spinner" role="status" aria-label="session running"></span>' : ""}
       </div>
       <h3>${escapeHtml(issue.title)}</h3>
       ${issue.description ? `<p class="description">${escapeHtml(issue.description)}</p>` : ""}
@@ -254,7 +265,7 @@ function card(issue, claim, failure) {
         ${claim ? ` · running (${escapeHtml(claim.status)}, attempt ${claim.attempt})` : ""}
         ${blockedBy.length ? ` · blocked by ${escapeHtml(blockedBy.join(", "))}` : ""}
       </p>
-      ${claim?.codex_live_session?.last_codex_message ? `<p class="meta live">${escapeHtml(claim.codex_live_session.last_codex_message)}</p>` : ""}
+      ${claim ? `<p class="meta live"><span class="live-dot"></span>${escapeHtml(claim.codex_live_session?.last_codex_message || "session starting…")}</p>` : ""}
       ${failure ? `<p class="meta error">retry ${escapeHtml(failure.retry_after || "now")}: ${escapeHtml(failure.last_error || "")}</p>` : ""}
       <div class="card-actions">
         <select data-inline="state" data-issue-id="${escapeAttr(issue.id)}" title="State">
@@ -267,6 +278,7 @@ function card(issue, claim, failure) {
       </div>
       <div class="card-actions">
         <button type="button" data-action="edit" data-issue-id="${escapeAttr(issue.id)}">Edit</button>
+        ${isArchivable(issue) ? `<button type="button" data-action="archive" data-issue-id="${escapeAttr(issue.id)}">Archive</button>` : ""}
         ${failure ? `<button type="button" data-action="retry" data-issue-id="${escapeAttr(issue.id)}">Retry</button>` : ""}
         ${deleteArmedId === issue.id
           ? `<button type="button" class="danger" data-action="confirm-delete" data-issue-id="${escapeAttr(issue.id)}">Delete?</button>
@@ -316,6 +328,11 @@ function renderLogs() {
   `).join("");
 }
 
+function isArchivable(issue) {
+  const state = lower(issue.state);
+  return config.terminal_states.some((terminal) => lower(terminal) === state) && state !== "archive";
+}
+
 function agentOptions() {
   return config.agents.map((agent) => ({ value: agent.name, text: agent.label || agent.name }));
 }
@@ -357,8 +374,11 @@ function parseLabels(value) {
   return String(value ?? "").split(",").map((label) => label.trim()).filter(Boolean);
 }
 
-function metric(label, value) {
-  return `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+function metric(label, value, live = false) {
+  return `<div class="metric${live ? " is-live" : ""}">
+    <span>${escapeHtml(label)}</span>
+    <strong>${escapeHtml(value)}${live ? ' <span class="spinner" role="status" aria-label="running"></span>' : ""}</strong>
+  </div>`;
 }
 
 function showBanner(message) {
