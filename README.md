@@ -14,8 +14,8 @@ It includes:
 - Per-task agent routing: each task picks which configured AI runs it.
 - Per-task project folder: a task can run in a folder you already work in, instead of a generated workspace.
 - Three themes (Apple, Pink, Blue), switchable from the board.
-- An Archive column and a one-click Archive button, so finished work leaves the Done column.
-- Live running indicators: a spinner and a pulsing dot on every card with an active session.
+- An Archive drawer inside the Done column, so finished work collapses out of the way.
+- Live running indicators for sessions Symphony dispatched *and* sessions you started yourself.
 
 This implementation uses a `local_json` tracker so you can run Symphony without external credentials. New tracker providers can be added behind the adapter interface in `src/tracker.js`.
 
@@ -86,9 +86,24 @@ is untested here and needs one real run before you rely on it.
 
 ## Archive
 
-`Archive` is a terminal state sitting between `Done` and `Canceled`. Cards in any
-terminal state get a one-click `Archive` button. Every column is capped at 62% of the
-viewport height and scrolls internally, so a long column never stretches the page.
+`Archive` is a terminal state, but it is not a column. Archived cards collapse into a
+drawer at the top of the Done column; the Done cards that are not archived yet sit
+directly below it. Any card in a terminal state gets a one-click `Archive` button, and
+the drawer stays open or closed across refreshes.
+
+## Seeing Sessions You Started Yourself
+
+The board shows a green dot and a spinner for any task whose folder has an AI CLI
+running in it, whether or not Symphony started it. Open a terminal, `cd` into a task's
+folder and run `claude`, and that task lights up.
+
+`src/sessions.js` asks the OS: `ps` for processes named `claude`, `codex`, `aider` or
+`goose` (skipping `/Applications` bundles, so the Claude desktop app is not mistaken for
+a CLI), then one `lsof` call for their working directories. A session counts for a task
+when it runs in the task's folder or below it. Results are cached for two seconds.
+
+This is how the board stays honest about what is happening: a folder is busy because
+something is running in it, not because Symphony is the one that ran it.
 
 ## Themes
 

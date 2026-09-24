@@ -1,4 +1,5 @@
 const OTHER_COLUMN = "(Other)";
+const ARCHIVE_STATE = "archive";
 
 let config = { states: [], active_states: [], terminal_states: [], agents: [], required_labels: [], default_agent: "" };
 let snapshot = null;
@@ -7,6 +8,7 @@ let logs = [];
 
 let editingId = null;
 let deleteArmedId = null;
+let archiveOpen = false;
 
 const THEMES = ["apple", "pink", "blue"];
 const THEME_KEY = "symphony.theme";
@@ -100,6 +102,12 @@ async function onComposerSubmit(event) {
 }
 
 async function onBoardClick(event) {
+  const summary = event.target.closest("[data-archive] > summary");
+  if (summary) {
+    archiveOpen = !summary.parentElement.open;
+    return;
+  }
+
   const trigger = event.target.closest("[data-action]");
   if (!trigger) return;
   const { action, issueId } = trigger.dataset;
@@ -206,9 +214,11 @@ function renderMetrics() {
   const required = config.required_labels;
   const terminal = new Set(config.terminal_states.map(lower));
   const dispatchable = issues.filter((issue) => issue.dispatchable && required.every((label) => issue.labels.includes(label))).length;
+  const claimed = new Set(snapshot.claims.map((claim) => claim.issue_id));
+  const live = issues.filter((issue) => claimed.has(issue.id) || sessionsFor(issue).length).length;
   el("metrics").innerHTML = [
     metric("Tasks", issues.length),
-    metric("Running", snapshot.claims.length, snapshot.claims.length > 0),
+    metric("Running", live, live > 0),
     metric("Dispatchable", dispatchable),
     metric("Terminal", issues.filter((issue) => terminal.has(lower(issue.state))).length)
   ].join("");
@@ -217,20 +227,29 @@ function renderMetrics() {
 function renderBoard() {
   const claimByIssue = new Map(snapshot.claims.map((claim) => [claim.issue_id, claim]));
   const failureByIssue = snapshot.failures;
-  const columns = [...config.states];
-  const known = new Set(columns.map(lower));
+  const draw = (issue) => card(issue, claimByIssue.get(issue.id), failureByIssue[issue.id], sessionsFor(issue));
+
+  const columns = config.states.filter((state) => lower(state) !== ARCHIVE_STATE);
+  const archived = issues.filter((issue) => lower(issue.state) === ARCHIVE_STATE);
+  const known = new Set([...columns.map(lower), ARCHIVE_STATE]);
   const leftovers = issues.filter((issue) => !known.has(lower(issue.state)));
   if (leftovers.length) columns.push(OTHER_COLUMN);
+
+  const archiveHost = columns.find((column) => lower(column) === "done")
+    ?? config.terminal_states.find((state) => lower(state) !== ARCHIVE_STATE)
+    ?? columns.at(-1);
 
   boardEl.innerHTML = columns.map((column) => {
     const columnIssues = column === OTHER_COLUMN
       ? leftovers
       : issues.filter((issue) => lower(issue.state) === lower(column));
+    const archiveHere = column === archiveHost && archived.length;
     return `
       <section class="column">
         <header><h2>${escapeHtml(column)}</h2><span class="count">${columnIssues.length}</span></header>
         <div class="cards">
-          ${columnIssues.map((issue) => card(issue, claimByIssue.get(issue.id), failureByIssue[issue.id])).join("")}
+          ${archiveHere ? archiveSection(archived, draw) : ""}
+          ${columnIssues.map(draw).join("")}
         </div>
       </section>
     `;
@@ -238,11 +257,20 @@ function renderBoard() {
   boardEl.style.setProperty("--columns", String(columns.length));
 }
 
-function card(issue, claim, failure) {
+function archiveSection(archived, draw) {
+  return `
+    <details class="archive" data-archive ${archiveOpen ? "open" : ""}>
+      <summary>Archive <span class="count">${archived.length}</span></summary>
+      <div class="archive-cards">${archived.map(draw).join("")}</div>
+    </details>
+  `;
+}
+
+function card(issue, claim, failure, external = []) {
   if (editingId === issue.id) return editCard(issue);
 
   const classes = ["card"];
-  if (claim) classes.push("running");
+  if (claim || external.length) classes.push("running");
   if (!issue.dispatchable || issue.blocked_by.length) classes.push("blocked");
   if (failure) classes.push("failed");
 
@@ -254,7 +282,7 @@ function card(issue, claim, failure) {
       <div class="eyebrow">
         ${escapeHtml(issue.identifier)} · P${issue.priority ?? "-"}
         ${agentName ? `<span class="agent-badge">${escapeHtml(agentLabel(agentName))}</span>` : `<span class="agent-badge muted">no AI</span>`}
-        ${claim ? '<span class="spinner" role="status" aria-label="session running"></span>' : ""}
+        ${claim || external.length ? '<span class="spinner" role="status" aria-label="session running"></span>' : ""}
       </div>
       <h3>${escapeHtml(issue.title)}</h3>
       ${issue.description ? `<p class="description">${escapeHtml(issue.description)}</p>` : ""}
@@ -266,6 +294,7 @@ function card(issue, claim, failure) {
         ${blockedBy.length ? ` · blocked by ${escapeHtml(blockedBy.join(", "))}` : ""}
       </p>
       ${claim ? `<p class="meta live"><span class="live-dot"></span>${escapeHtml(claim.codex_live_session?.last_codex_message || "session starting…")}</p>` : ""}
+      ${external.length ? `<p class="meta live"><span class="live-dot"></span>${escapeHtml(describeSessions(external))}</p>` : ""}
       ${failure ? `<p class="meta error">retry ${escapeHtml(failure.retry_after || "now")}: ${escapeHtml(failure.last_error || "")}</p>` : ""}
       <div class="card-actions">
         <select data-inline="state" data-issue-id="${escapeAttr(issue.id)}" title="State">
@@ -326,6 +355,21 @@ function renderLogs() {
       <div>${escapeHtml(JSON.stringify(log))}</div>
     </div>
   `).join("");
+}
+
+function sessionsFor(issue) {
+  if (!issue.workspace_path) return [];
+  const root = issue.workspace_path.replace(/\/+$/, "");
+  return (snapshot.external_sessions || []).filter((session) => {
+    const cwd = String(session.cwd || "");
+    return cwd === root || cwd.startsWith(`${root}/`);
+  });
+}
+
+function describeSessions(sessions) {
+  const names = [...new Set(sessions.map((session) => session.name))].join(" · ");
+  const count = sessions.length;
+  return `${names} running in this folder (${count} session${count > 1 ? "s" : ""})`;
 }
 
 function isArchivable(issue) {

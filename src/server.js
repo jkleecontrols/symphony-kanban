@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import fsp from "node:fs/promises";
 import { expandPathValue, normalizeState, uniqueLowerLabels } from "./utils.js";
+import { scanExternalSessions } from "./sessions.js";
 
 export function createServer(orchestrator, logger) {
   const publicDir = path.resolve(orchestrator.workflow.dir, "public");
@@ -11,7 +12,11 @@ export function createServer(orchestrator, logger) {
     const url = new URL(req.url, "http://localhost");
     try {
       if (url.pathname === "/api/config") return json(res, boardConfig(orchestrator));
-      if (url.pathname === "/api/state") return json(res, orchestrator.snapshot());
+      if (url.pathname === "/api/state") {
+        // Sessions the user started themselves belong to a task too, so the board can
+        // show a folder as busy even when Symphony did not dispatch the work.
+        return json(res, { ...orchestrator.snapshot(), external_sessions: await scanExternalSessions() });
+      }
       if (url.pathname === "/api/logs") return json(res, logger.recent.slice(-200));
 
       if (url.pathname === "/api/issues" && req.method === "GET") {

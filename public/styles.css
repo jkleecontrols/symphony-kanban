@@ -519,11 +519,6 @@ pre,
   }
 }
 
-/* --- columns stay a fixed height; long columns scroll instead of stretching the page --- */
-.cards {
-  max-height: 62vh;
-  overflow-y: auto;
-}
 
 /* --- running indicators --- */
 @keyframes symphony-spin {
@@ -580,4 +575,65 @@ pre,
   .live-dot {
     animation: none;
   }
+}
+
+/* --- archive: a collapsed section at the top of the Done column, not its own column --- */
+.archive {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--soft);
+}
+
+.archive > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 11px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  list-style: none;
+  user-select: none;
+}
+
+.archive > summary::-webkit-details-marker {
+  display: none;
+}
+
+.archive > summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.15s ease;
+}
+
+.archive[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.archive > summary:hover {
+  color: var(--ink);
+}
+
+.archive .count {
+  margin-left: auto;
+  font-weight: 400;
+}
+
+.archive-cards {
+  display: grid;
+  gap: 10px;
+  padding: 0 8px 10px;
+}
+
+.archive-cards .card {
+  opacity: 0.72;
+}
+
+.archive-cards .card:hover {
+  opacity: 1;
 }
