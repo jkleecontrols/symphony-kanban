@@ -84,7 +84,7 @@ main {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -110,7 +110,7 @@ main {
 
 .board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(220px, 1fr));
+  grid-template-columns: repeat(var(--columns, 5), minmax(240px, 1fr));
   gap: 12px;
   align-items: start;
   overflow-x: auto;
@@ -260,5 +260,161 @@ pre,
 
   .metrics {
     grid-template-columns: repeat(2, minmax(140px, 1fr));
+  }
+}
+
+/* --- operator banner --- */
+.banner {
+  margin: 0;
+  padding: 12px 28px;
+  background: #fdecea;
+  border-bottom: 1px solid #f3c2bd;
+  color: var(--bad);
+}
+
+/* --- new task composer --- */
+.composer {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 18px;
+}
+
+.composer h2 {
+  font-size: 15px;
+  margin-bottom: 12px;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.field-grid .wide {
+  grid-column: 1 / -1;
+}
+
+label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+label > span em {
+  font-style: normal;
+  color: var(--accent-2);
+}
+
+input[type="text"],
+input[type="number"],
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+textarea:focus,
+select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+label.check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.freeze-notice {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border: 1px dashed var(--warn);
+  border-radius: 6px;
+  color: var(--warn);
+  font-size: 12px;
+  background: #fff8ed;
+}
+
+/* --- cards --- */
+.agent-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.agent-badge.muted {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.card.editing {
+  border-left-color: var(--accent-2);
+  background: #fffdf9;
+}
+
+.card.editing form {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.meta.live {
+  color: var(--ok);
+}
+
+.meta.error {
+  color: var(--bad);
+}
+
+button.danger {
+  border-color: var(--bad);
+  background: var(--bad);
+  color: white;
+}
+
+.card-actions button {
+  height: 32px;
+  padding: 0 10px;
+}
+
+@media (max-width: 900px) {
+  .field-grid {
+    grid-template-columns: 1fr;
   }
 }

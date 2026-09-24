@@ -72,3 +72,32 @@ export function truncate(value, max = 2000) {
 export function makeId(prefix) {
   return `${prefix}-${crypto.randomBytes(6).toString("hex")}`;
 }
+
+export async function withFileLock(lockPath, fn, { attempts = 200, waitMs = 25 } = {}) {
+  let handle = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      handle = await fs.open(lockPath, "wx");
+      break;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      await sleep(waitMs);
+    }
+  }
+  if (!handle) throw new Error(`could not acquire lock ${lockPath}`);
+  try {
+    return await fn();
+  } finally {
+    await handle.close();
+    await fs.rm(lockPath, { force: true });
+  }
+}
+
+export function nextSequence(values, pattern) {
+  let max = 0;
+  for (const value of values) {
+    const match = String(value ?? "").match(pattern);
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return max + 1;
+}

@@ -24,8 +24,33 @@ hooks:
     printf "attempt started at %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .symphony_attempts
   after_run: |
     printf "attempt finished at %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .symphony_attempts
+agents:
+  mock:
+    label: Mock demo agent
+    description: Fake agent. Proves the board and orchestrator work. Does no real work.
+    command: |
+      node ../../../scripts/mock-agent.js
+  claude:
+    label: Claude Code
+    description: NOT CONFIGURED YET. Replace command with your real claude invocation.
+    command: |
+      printf '{"type":"codex_event","event":"agent_not_configured","message":"agent claude has no real command yet - edit agents.claude.command in WORKFLOW.md"}\n'
+      exit 1
+  codex:
+    label: Codex CLI
+    description: NOT CONFIGURED YET. Replace command with your real codex invocation.
+    command: |
+      printf '{"type":"codex_event","event":"agent_not_configured","message":"agent codex has no real command yet - edit agents.codex.command in WORKFLOW.md"}\n'
+      exit 1
+  omniroute:
+    label: OmniRoute
+    description: NOT CONFIGURED YET. For simple tasks. Replace command with your real omniroute invocation.
+    command: |
+      printf '{"type":"codex_event","event":"agent_not_configured","message":"agent omniroute has no real command yet - edit agents.omniroute.command in WORKFLOW.md"}\n'
+      exit 1
 agent:
   max_concurrent_agents: 2
+  default_agent: mock
   max_turns: 3
   max_retry_backoff_ms: 30000
   max_concurrent_agents_by_state:

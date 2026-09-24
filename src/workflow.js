@@ -17,7 +17,7 @@ export async function loadWorkflow(workflowPath) {
 
   const { rawConfig, promptTemplate } = parseWorkflow(source);
   const config = resolveConfig(rawConfig, path.dirname(resolved));
-  return { path: resolved, dir: path.dirname(resolved), config, promptTemplate };
+  return { path: resolved, dir: path.dirname(resolved), config, rawConfig, promptTemplate };
 }
 
 export function parseWorkflow(source) {
@@ -57,7 +57,12 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
     return [key, resolveEnvRef(value, env)];
   }));
 
+  const fallbackCommand = codex.command || "codex app-server";
+  const agents = normalizeAgents(raw.agents, fallbackCommand);
+  const defaultAgent = pickDefaultAgent(agent.default_agent, agents);
+
   const resolved = {
+    agents,
     tracker: {
       kind: tracker.kind || "",
       provider,
@@ -82,7 +87,8 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
       max_concurrent_agents: positiveInteger(agent.max_concurrent_agents, 10),
       max_turns: positiveInteger(agent.max_turns, 20),
       max_retry_backoff_ms: positiveInteger(agent.max_retry_backoff_ms, 300000),
-      max_concurrent_agents_by_state: normalizeStateLimits(agent.max_concurrent_agents_by_state)
+      max_concurrent_agents_by_state: normalizeStateLimits(agent.max_concurrent_agents_by_state),
+      default_agent: defaultAgent
     },
     codex: {
       command: codex.command || "codex app-server",
@@ -132,6 +138,8 @@ function validateConfig(config) {
   if (config.tracker.kind !== "local_json") errors.push(`unsupported tracker.kind: ${config.tracker.kind}`);
   if (config.tracker.kind === "local_json" && !config.tracker.provider.path) errors.push("tracker.provider.path is required for local_json");
   if (config.codex.stall_timeout_ms == null || Number.isNaN(config.codex.stall_timeout_ms)) errors.push("codex.stall_timeout_ms must be an integer");
+  if (!Object.keys(config.agents).length) errors.push("agents must define at least one agent with a command");
+  if (!config.agents[config.agent.default_agent]) errors.push(`agent.default_agent is not defined in agents: ${config.agent.default_agent}`);
   if (errors.length) {
     const err = new Error(`workflow_parse_error: ${errors.join("; ")}`);
     err.code = "workflow_parse_error";
@@ -227,6 +235,33 @@ function integer(value, fallback) {
 
 function stringOrNull(value) {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function normalizeAgents(value, fallbackCommand) {
+  const agents = {};
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    for (const [rawName, definition] of Object.entries(value)) {
+      const name = String(rawName).trim();
+      if (!name) continue;
+      const command = typeof definition === "string" ? definition : definition?.command;
+      if (typeof command !== "string" || !command.trim()) continue;
+      agents[name] = {
+        command: command.trim(),
+        label: typeof definition?.label === "string" && definition.label.trim() ? definition.label.trim() : name,
+        description: typeof definition?.description === "string" ? definition.description : null
+      };
+    }
+  }
+  if (!Object.keys(agents).length) {
+    agents.default = { command: fallbackCommand, label: "default", description: "falls back to codex.command" };
+  }
+  return agents;
+}
+
+function pickDefaultAgent(requested, agents) {
+  const name = typeof requested === "string" ? requested.trim() : "";
+  if (name) return name;
+  return Object.keys(agents)[0] || "";
 }
 
 function normalizeStateLimits(value) {

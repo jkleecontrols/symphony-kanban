@@ -150,6 +150,13 @@ export class Orchestrator {
     return true;
   }
 
+  async forget(issueId) {
+    await this.release(issueId);
+    const hadFailure = this.failures.delete(issueId);
+    if (hadFailure) this.logger.event("info", "failure_cleared", { issue_id: issueId });
+    return hadFailure;
+  }
+
   async retry(issueId) {
     this.failures.delete(issueId);
     await this.poll();

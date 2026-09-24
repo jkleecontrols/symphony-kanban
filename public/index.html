@@ -10,17 +10,63 @@
     <header class="topbar">
       <div>
         <h1>Symphony Local</h1>
-        <p>Issue tracker orchestration, agent claims, live sessions, and operator controls.</p>
+        <p>Queue your work on the board and route each task to a local AI session.</p>
       </div>
       <div class="actions">
+        <button id="composerToggle" type="button" class="primary">+ New Task</button>
         <button id="pollButton" type="button">Poll Now</button>
         <button id="refreshButton" type="button">Refresh</button>
       </div>
     </header>
 
+    <div id="banner" class="banner" hidden></div>
+
     <main>
+      <section class="composer" id="composer" hidden>
+        <h2>New task</h2>
+        <form id="composerForm" autocomplete="off">
+          <div class="field-grid">
+            <label class="wide">
+              <span>Title <em>required</em></span>
+              <input name="title" type="text" placeholder="e.g. Build a script that sorts invoices" required>
+            </label>
+            <label>
+              <span>State</span>
+              <select name="state"></select>
+            </label>
+            <label>
+              <span>Assigned AI</span>
+              <select name="agent"></select>
+            </label>
+            <label>
+              <span>Priority</span>
+              <input name="priority" type="number" min="1" step="1" placeholder="1">
+            </label>
+            <label class="wide">
+              <span>Description</span>
+              <textarea name="description" rows="2" placeholder="Context handed to the agent"></textarea>
+            </label>
+            <label class="wide">
+              <span>Labels <em>comma separated</em></span>
+              <input name="labels" type="text" placeholder="docs, urgent">
+            </label>
+            <label class="check wide">
+              <input name="dispatchable" type="checkbox" checked>
+              <span>Dispatch to an AI automatically — turn this off to park the task on the board</span>
+            </label>
+          </div>
+          <div class="composer-actions">
+            <button type="submit" class="primary">Add</button>
+            <button type="button" id="composerCancel">Cancel</button>
+            <span class="hint" id="composerHint"></span>
+          </div>
+        </form>
+      </section>
+
       <section class="metrics" id="metrics"></section>
+      <div id="freezeNotice" class="freeze-notice" hidden>Board auto-refresh is paused while you edit a card.</div>
       <section class="board" id="board"></section>
+
       <section class="lower">
         <article>
           <h2>Runtime</h2>

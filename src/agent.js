@@ -17,7 +17,10 @@ export class AgentRunner {
     await this.workspaceManager.beforeRun(workspace.path);
     const threadId = makeId("thread");
     let currentIssue = issue;
+    const selectedAgent = this.resolveAgent(issue);
     const liveSession = {
+      agent: selectedAgent.name,
+      agent_command: selectedAgent.command,
       session_id: null,
       thread_id: threadId,
       turn_id: null,
@@ -57,8 +60,16 @@ export class AgentRunner {
 
   runTurn(issue, prompt, attempt, turn, cwd, liveSession) {
     return new Promise((resolve, reject) => {
-      const childEnv = this.buildChildEnv(issue, prompt, attempt, turn);
-      const child = spawn("bash", ["-lc", this.config.codex.command], {
+      const selectedAgent = this.resolveAgent(issue);
+      const childEnv = this.buildChildEnv(issue, prompt, attempt, turn, selectedAgent);
+      this.logger.event("info", "agent_selected", {
+        issue_id: issue.id,
+        identifier: issue.identifier,
+        agent: selectedAgent.name,
+        requested_agent: issue.agent ?? null,
+        turn
+      });
+      const child = spawn("bash", ["-lc", selectedAgent.command], {
         cwd,
         env: childEnv,
         stdio: ["ignore", "pipe", "pipe"]
@@ -118,7 +129,24 @@ export class AgentRunner {
     });
   }
 
-  buildChildEnv(issue, prompt, attempt, turn) {
+  resolveAgent(issue) {
+    const agents = this.config.agents || {};
+    const requested = typeof issue.agent === "string" ? issue.agent.trim() : "";
+    if (requested && agents[requested]) return { name: requested, command: agents[requested].command };
+    if (requested) {
+      this.logger.event("warn", "agent_not_found", {
+        issue_id: issue.id,
+        identifier: issue.identifier,
+        requested_agent: requested,
+        available: Object.keys(agents)
+      });
+    }
+    const fallback = this.config.agent.default_agent;
+    if (agents[fallback]) return { name: fallback, command: agents[fallback].command };
+    return { name: "codex.command", command: this.config.codex.command };
+  }
+
+  buildChildEnv(issue, prompt, attempt, turn, selectedAgent = null) {
     const env = { ...process.env };
     for (const key of this.tracker.secretEnvNames || []) delete env[key];
     return {
@@ -129,6 +157,10 @@ export class AgentRunner {
       SYMPHONY_TRACKER_PATH: this.config.tracker.provider.path || "",
       SYMPHONY_ATTEMPT: attempt == null ? "" : String(attempt),
       SYMPHONY_TURN: String(turn),
+      SYMPHONY_AGENT: selectedAgent?.name ?? "",
+      SYMPHONY_ISSUE_TITLE: issue.title ?? "",
+      SYMPHONY_ISSUE_STATE: issue.state ?? "",
+      SYMPHONY_ISSUE_LABELS: (issue.labels || []).join(","),
       SYMPHONY_PROMPT: prompt
     };
   }
