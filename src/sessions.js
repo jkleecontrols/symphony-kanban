@@ -63,6 +63,16 @@ async function workingDirectories(pids) {
   return found;
 }
 
+// A process can sit open for days without doing anything. Treating that as live makes
+// the board claim work is happening when the terminal was simply never closed, so a
+// session quiet for longer than the threshold stops counting as live.
+export function isStale(session, staleAfterHours) {
+  if (!Number.isFinite(staleAfterHours) || staleAfterHours <= 0) return false;
+  const at = Date.parse(session?.at || "");
+  if (!Number.isFinite(at)) return false;
+  return Date.now() - at > staleAfterHours * 3600000;
+}
+
 // A session counts for a task when it runs in the task's folder or below it.
 export function sessionsForPath(sessions, workspacePath) {
   if (!workspacePath) return [];

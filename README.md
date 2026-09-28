@@ -76,6 +76,42 @@ This covers the review half of the pitch. Branch-per-task and pull requests do n
 appear here on purpose: they are how a team hands work to reviewers, and they conflict
 with pointing a task at the folder you are already working in.
 
+### Being told instead of looking
+
+A board that reports correctly still only reports to someone looking at it. With several
+folders in flight the scarce thing is attention, so the machine says when it needs you.
+
+```yaml
+notify:
+  enabled: true
+  on: [human_review, check_failed]
+  command: null
+  after_waiting_ms: 60000
+```
+
+macOS notifications by default; set `command` to your own notifier and it receives
+`SYMPHONY_NOTIFY_TITLE` and `SYMPHONY_NOTIFY_MESSAGE`. The same card does not nag on
+every poll, and `after_waiting_ms` is the reason your own terminal stays quiet: answer a
+question within that window and nothing is sent, because you were already there.
+
+A browser popup is deliberately not the alerting mechanism — it only works while the
+board is open, which is exactly when you do not need it.
+
+### One worker per folder
+
+A folder holds one worker at a time (`agent.max_concurrent_agents_per_folder`), and
+`dispatch_guard.skip_if_session_open` stops Symphony dispatching into a folder you
+already have a session open in. Both prevent the same failure: two agents editing the
+same files with no idea the other exists.
+
+### Sessions that were only ever left open
+
+A process can sit idle for days. Counting it as live makes the board claim work is
+happening when a terminal was simply never closed, so a session quiet for longer than
+`sessions.stale_after_hours` stops counting — it no longer holds a card in a state and no
+longer blocks dispatch. The card still lists it with its idle time, so you can see what
+is worth closing. Nothing is killed for you.
+
 ### The dispatch guard
 
 Auto-dispatch lets an agent write with nobody watching, and a task's folder is a folder
@@ -116,6 +152,8 @@ It includes:
 - The board follows your sessions: a card's column is decided by what its session is doing.
 - Done ages into Archive on its own, and auto-dispatch is refused for folders with no undo.
 - Proof of work: every finished run records what it changed and whether the project's checks pass.
+- Desktop notifications when a session is waiting on you or a check fails.
+- One worker per folder, and never one beside a session you already have open.
 - Live session detail: each running session's topic and current activity, read from the CLI's own transcript.
 - Spec section 10/11 reconciliation: a run whose card leaves the active states is actually terminated.
 

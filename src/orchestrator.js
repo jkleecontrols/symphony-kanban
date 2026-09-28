@@ -2,10 +2,11 @@ import { AgentRunner } from "./agent.js";
 import { createTracker, issueHasRequiredLabels } from "./tracker.js";
 import { WorkspaceManager } from "./workspace.js";
 import { normalizeState, nowIso, sleep } from "./utils.js";
-import { scanExternalSessions, sessionsForPath } from "./sessions.js";
+import { isStale, scanExternalSessions, sessionsForPath } from "./sessions.js";
 import { changesSince, inspect } from "./gitguard.js";
 import { lastActivity } from "./transcripts.js";
 import { runVerification, summarize } from "./verify.js";
+import { Notifier } from "./notify.js";
 
 // The busiest session in a folder decides the card: one turn running anywhere in it
 // means the task is in progress.
@@ -52,6 +53,9 @@ export class Orchestrator {
     // Injectable so tests can drive the watcher without real processes.
     this.scanSessions = scanExternalSessions;
     this.lookupHistory = lastActivity;
+    this.notifier = new Notifier(this.config, logger);
+    // When each card started waiting, so a question answered right away stays silent.
+    this.waitingSince = new Map();
     // Issues already refused by the dispatch guard, so the reason is logged once.
     this.guardRefused = new Map();
     this.lastChanges = new Map();
@@ -102,22 +106,51 @@ export class Orchestrator {
   }
 
   // Auto-dispatch writes with nobody watching, so the folder must be recoverable first.
+  // Two agents in one folder overwrite each other, and so does an agent working beside
+  // you. A folder holds one worker at a time.
+  folderBusy(issue) {
+    if (!issue.workspace_path) return false;
+    const limit = this.config.agent.max_concurrent_agents_per_folder;
+    let running = 0;
+    for (const claim of this.claims.values()) {
+      if (claim.issue?.workspace_path === issue.workspace_path) running += 1;
+    }
+    return running >= limit;
+  }
+
+  async sessionOpenIn(issue) {
+    if (!this.config.dispatch_guard.skip_if_session_open || !issue.workspace_path) return null;
+    const settings = this.config.sessions;
+    try {
+      const sessions = await this.scanSessions(settings.names.length ? settings.names : undefined);
+      const live = sessionsForPath(sessions, issue.workspace_path)
+        .filter((session) => !isStale(session, settings.stale_after_hours));
+      return live.length ? live[0] : null;
+    } catch {
+      return null;
+    }
+  }
+
   async guardBaseline(issue) {
+    const open = await this.sessionOpenIn(issue);
+    if (open) {
+      this.noteRefusal(issue, `a ${open.name} session is already open in this folder`);
+      return null;
+    }
     if (!this.config.dispatch_guard.require_git) return { git: false, skipped: true };
     const state = await inspect(issue.workspace_path);
     if (state.git) {
       this.guardRefused.delete(issue.id);
       return state;
     }
-    if (this.guardRefused.get(issue.id) !== state.reason) {
-      this.guardRefused.set(issue.id, state.reason);
-      this.logger.event("warn", "dispatch_refused", {
-        issue_id: issue.id,
-        identifier: issue.identifier,
-        reason: state.reason
-      });
-    }
+    this.noteRefusal(issue, state.reason);
     return null;
+  }
+
+  noteRefusal(issue, reason) {
+    if (this.guardRefused.get(issue.id) === reason) return;
+    this.guardRefused.set(issue.id, reason);
+    this.logger.event("warn", "dispatch_refused", { issue_id: issue.id, identifier: issue.identifier, reason });
   }
 
   async sweepArchive() {
@@ -206,6 +239,7 @@ export class Orchestrator {
 
   canDispatch(issue) {
     if (this.claims.size >= this.config.agent.max_concurrent_agents) return false;
+    if (this.folderBusy(issue)) return false;
     const state = normalizeState(issue.state);
     const limit = this.config.agent.max_concurrent_agents_by_state[state];
     if (!limit) return true;
@@ -251,6 +285,13 @@ export class Orchestrator {
     if (this.config.verify.enabled && command && issue.workspace_path) {
       this.logger.event("info", "verification_started", { issue_id: issue.id, identifier: issue.identifier, command });
       evidence.verify = await runVerification(command, issue.workspace_path, this.config.verify.timeout_ms);
+      if (!evidence.verify.ok) {
+        await this.notifier.send("check_failed", {
+          key: issue.id,
+          title: `${issue.identifier} checks failed`,
+          message: `${command} exited ${evidence.verify.exit_code}${evidence.verify.timed_out ? " (timed out)" : ""}`
+        });
+      }
       this.logger.event(evidence.verify.ok ? "info" : "warn", "verification_finished", {
         issue_id: issue.id,
         identifier: issue.identifier,
@@ -357,7 +398,8 @@ export class Orchestrator {
       // Only states the watcher owns. A card parked in Archive or Canceled stays put.
       if (!managedKeys.has(normalizeState(issue.state))) continue;
 
-      const live = sessionsForPath(sessions, issue.workspace_path);
+      const live = sessionsForPath(sessions, issue.workspace_path)
+        .filter((session) => !isStale(session, settings.stale_after_hours));
       const entry = this.externalWatch.get(issue.id) || { seen: false, empty: 0 };
 
       if (live.length) {
@@ -386,6 +428,30 @@ export class Orchestrator {
     for (const issueId of [...this.externalWatch.keys()]) {
       if (!stillWatched.has(issueId)) this.externalWatch.delete(issueId);
     }
+
+    await this.alertOnStaleQuestions(await this.tracker.readIssues());
+  }
+
+  // Sitting at the terminal, you answer in seconds and do not need telling. Alert only
+  // once a question has gone unanswered long enough to mean you walked away.
+  async alertOnStaleQuestions(issues) {
+    const waiting = normalizeState(this.config.sessions.states.waiting);
+    const after = this.config.notify.after_waiting_ms;
+    for (const issue of issues) {
+      const since = this.waitingSince.get(issue.id);
+      if (!since) continue;
+      if (normalizeState(issue.state) !== waiting) {
+        this.waitingSince.delete(issue.id);
+        this.notifier.forget(issue.id);
+        continue;
+      }
+      if (Date.now() - since < after) continue;
+      await this.notifier.send("human_review", {
+        key: issue.id,
+        title: `${issue.identifier} needs you`,
+        message: `${issue.title} — the session is waiting on an answer`
+      });
+    }
   }
 
   async applySessionState(issue, target, reason) {
@@ -393,6 +459,12 @@ export class Orchestrator {
     try {
       const updated = await this.tracker.updateIssueState(issue.id, target);
       if (updated) {
+        if (reason === "session_phase" && normalizeState(target) === normalizeState(this.config.sessions.states.waiting)) {
+          if (!this.waitingSince.has(issue.id)) this.waitingSince.set(issue.id, Date.now());
+        } else {
+          this.waitingSince.delete(issue.id);
+          this.notifier.forget(issue.id);
+        }
         this.logger.event("info", "session_state_synced", {
           issue_id: issue.id,
           identifier: issue.identifier,

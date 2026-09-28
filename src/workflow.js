@@ -55,6 +55,7 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
   const archive = raw.archive || {};
   const guard = raw.dispatch_guard || {};
   const verify = raw.verify || {};
+  const notify = raw.notify || {};
 
   const provider = Object.fromEntries(Object.entries(tracker.provider || {}).map(([key, value]) => {
     if (key === "path" || key.endsWith("_path")) return [key, expandPathValue(resolveEnvRef(value, env), workflowDir, env)];
@@ -74,7 +75,14 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
       after_days: Number(archive.after_days ?? 2)
     },
     dispatch_guard: {
-      require_git: guard.require_git !== false
+      require_git: guard.require_git !== false,
+      skip_if_session_open: guard.skip_if_session_open !== false
+    },
+    notify: {
+      enabled: notify.enabled !== false,
+      on: arrayOfStrings(notify.on).map((name) => name.trim()).filter(Boolean),
+      command: stringOrNull(notify.command),
+      after_waiting_ms: positiveInteger(notify.after_waiting_ms, 60000)
     },
     verify: {
       enabled: verify.enabled !== false,
@@ -85,6 +93,7 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
       watch: sessions.watch !== false,
       names: arrayOfStrings(sessions.names).map((name) => name.trim()).filter(Boolean),
       settle_polls: positiveInteger(sessions.settle_polls, 2),
+      stale_after_hours: Number(sessions.stale_after_hours ?? 12),
       states: {
         working: stringOrNull(sessions.states?.working),
         idle: stringOrNull(sessions.states?.idle),
@@ -117,6 +126,7 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
       max_turns: positiveInteger(agent.max_turns, 20),
       max_retry_backoff_ms: positiveInteger(agent.max_retry_backoff_ms, 300000),
       max_concurrent_agents_by_state: normalizeStateLimits(agent.max_concurrent_agents_by_state),
+      max_concurrent_agents_per_folder: positiveInteger(agent.max_concurrent_agents_per_folder, 1),
       default_agent: defaultAgent
     },
     codex: {

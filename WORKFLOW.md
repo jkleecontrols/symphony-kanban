@@ -35,6 +35,8 @@ sessions:
     - aider
     - goose
   settle_polls: 2
+  # A terminal left open for days is not work in progress.
+  stale_after_hours: 12
   states:
     working: In Progress
     idle: Ready
@@ -46,6 +48,17 @@ archive:
   from_state: Done
   to_state: Archive
   after_days: 2
+notify:
+  # The board is passive; with several folders in flight the scarce thing is attention.
+  # Leave `command` null to use macOS notifications, or set it to your own notifier
+  # (it receives SYMPHONY_NOTIFY_TITLE and SYMPHONY_NOTIFY_MESSAGE).
+  enabled: true
+  on:
+    - human_review
+    - check_failed
+  command: null
+  # Answer within this window and no notification is sent; you were already there.
+  after_waiting_ms: 60000
 verify:
   # After an agent run, run the task's own check and attach the result to the card.
   # A task sets its own `verify_command`; this is the fallback for tasks that do not.
@@ -53,6 +66,8 @@ verify:
   command: null
   timeout_ms: 300000
 dispatch_guard:
+  # Never dispatch into a folder you already have a session open in.
+  skip_if_session_open: true
   # Auto-dispatch writes with nobody watching. Refuse it unless the folder is a git
   # repository with at least one commit, so whatever happens can be seen and undone.
   require_git: true
@@ -91,6 +106,7 @@ agents:
       node "$SYMPHONY_HOME/scripts/finish.js" "Human Review"
 agent:
   max_concurrent_agents: 2
+  max_concurrent_agents_per_folder: 1
   default_agent: mock
   max_turns: 3
   max_retry_backoff_ms: 30000
