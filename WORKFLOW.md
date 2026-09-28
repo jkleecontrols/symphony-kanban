@@ -59,6 +59,11 @@ notify:
   command: null
   # Answer within this window and no notification is sent; you were already there.
   after_waiting_ms: 60000
+reply:
+  # Answering from the board resumes the session by id in a new process. The board
+  # refuses to send while a session is still open in that folder.
+  enabled: true
+  timeout_ms: 900000
 verify:
   # After an agent run, run the task's own check and attach the result to the card.
   # A task sets its own `verify_command`; this is the fallback for tasks that do not.

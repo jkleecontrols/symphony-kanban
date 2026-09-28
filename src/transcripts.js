@@ -5,6 +5,7 @@ import path from "node:path";
 const TAIL_BYTES = 96 * 1024;
 const CODEX_WINDOW_MS = 48 * 60 * 60 * 1000;
 const MAX_TEXT = 160;
+const MAX_QUESTION = 900;
 // A turn that ended moments ago is still "working" as far as an operator is concerned.
 const WORKING_GRACE_MS = 45 * 1000;
 const HISTORY_CACHE_MS = 15 * 1000;
@@ -55,7 +56,17 @@ async function claudeActivity(cwd, root) {
   }
 
   const when = at || file.mtime;
-  return { title, activity, at: when, phase: phaseOf(stopReason, lastText, when), transcript: file.path };
+  const phase = phaseOf(stopReason, lastText, when);
+  return {
+    title,
+    activity,
+    at: when,
+    phase,
+    // The whole of what it asked, not the one-line preview, so it can be answered.
+    question: phase === "waiting" ? clipTo(lastText, MAX_QUESTION) : null,
+    session_id: path.basename(file.path, ".jsonl"),
+    transcript: file.path
+  };
 }
 
 // Claude Code names a project folder after its path with every character outside
@@ -119,7 +130,15 @@ async function codexActivity(cwd) {
     }
     const when = at || file.mtime;
     if (phase === "idle" && Date.now() - Date.parse(when) < WORKING_GRACE_MS) phase = "working";
-    return { title: null, activity, at: when, phase, transcript: file.path };
+    return {
+      title: null,
+      activity,
+      at: when,
+      phase,
+      question: null,
+      session_id: codexSessionId(file.path),
+      transcript: file.path
+    };
   }
   return null;
 }
@@ -150,6 +169,17 @@ function textOf(content) {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
   return content.map((part) => (typeof part === "string" ? part : part?.text || "")).join(" ").trim();
+}
+
+// Codex names a rollout `rollout-<timestamp>-<session uuid>.jsonl`.
+function codexSessionId(filePath) {
+  const match = path.basename(filePath, ".jsonl").match(/([0-9a-f]{8}-[0-9a-f-]{27,})$/i);
+  return match ? match[1] : null;
+}
+
+function clipTo(text, max) {
+  const flat = String(text || "").trim();
+  return flat.length > max ? `…${flat.slice(-max)}` : flat;
 }
 
 function clip(text) {

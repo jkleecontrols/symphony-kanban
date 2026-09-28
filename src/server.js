@@ -5,6 +5,9 @@ import fsp from "node:fs/promises";
 import { expandPathValue, normalizeState, uniqueLowerLabels } from "./utils.js";
 import { scanExternalSessions, sessionsForPath } from "./sessions.js";
 import { suggestCommand } from "./verify.js";
+import { canReplyTo, sendReply } from "./reply.js";
+import { isStale } from "./sessions.js";
+import { readActivity } from "./transcripts.js";
 
 export function createServer(orchestrator, logger) {
   const publicDir = path.resolve(orchestrator.workflow.dir, "public");
@@ -59,6 +62,9 @@ export function createServer(orchestrator, logger) {
       if (url.pathname.startsWith("/api/issues/")) {
         const id = decodeURIComponent(url.pathname.split("/")[3] || "");
         if (!id) return fail(res, 400, "invalid_request", "issue id is required");
+        if (url.pathname.endsWith("/reply") && req.method !== "POST") {
+          return fail(res, 404, "not_found", "reply takes POST");
+        }
 
         if (req.method === "PATCH") {
           const patch = await buildPatch(orchestrator, await readJson(req));
@@ -66,6 +72,11 @@ export function createServer(orchestrator, logger) {
           if (!updated) return fail(res, 404, "issue_not_found", `unknown issue: ${id}`);
           logger.event("info", "issue_updated", { issue_id: id, identifier: updated.identifier, fields: Object.keys(patch) });
           return json(res, { ok: true, issue: updated });
+        }
+
+        if (url.pathname.endsWith("/reply") && req.method === "POST") {
+          const replyId = decodeURIComponent(url.pathname.split("/")[3] || "");
+          return json(res, await replyToSession(orchestrator, replyId, await readJson(req)));
         }
 
         if (req.method === "DELETE") {
@@ -97,9 +108,61 @@ export function createServer(orchestrator, logger) {
         path: url.pathname,
         error: error.message
       });
-      return fail(res, status, error.code === "invalid_request" ? "invalid_request" : "internal_error", error.message);
+      return fail(res, status, error.code === "invalid_request" || error.code === "issue_not_found" ? error.code : "internal_error", error.message);
     }
   });
+}
+
+// Answering from the board resumes the conversation in a new process. Beside an open
+// terminal that is the collision this project already hit once, so the board shows the
+// question but refuses to send until the session is closed.
+async function replyToSession(orchestrator, issueId, body) {
+  const config = orchestrator.config;
+  if (!config.reply.enabled) throw invalid("replying is disabled in WORKFLOW.md");
+
+  const answer = String(body.answer ?? "").trim();
+  if (!answer) throw invalid("an answer is required");
+
+  const issues = await orchestrator.tracker.readIssues();
+  const issue = issues.find((candidate) => candidate.id === issueId);
+  if (!issue) throw notFoundError(`unknown issue: ${issueId}`);
+  if (!issue.workspace_path) throw invalid("this task has no project folder to reply into");
+
+  const names = config.sessions.names;
+  const sessions = await scanExternalSessions(names.length ? names : undefined);
+  const live = sessionsForPath(sessions, issue.workspace_path)
+    .filter((session) => !isStale(session, config.sessions.stale_after_hours));
+  if (live.length) {
+    throw invalid(`a ${live[0].name} session is still open in this folder — answer it there, or close it first`);
+  }
+
+  const agent = String(body.agent || issue.agent || "claude");
+  if (!canReplyTo(agent)) throw invalid(`cannot resume a ${agent} session`);
+
+  const history = await readActivity({ name: agent, cwd: issue.workspace_path });
+  const sessionId = body.session_id || history?.session_id;
+  if (!sessionId) throw invalid(`no ${agent} session found for ${issue.workspace_path}`);
+
+  const result = await sendReply({
+    agent,
+    sessionId,
+    cwd: issue.workspace_path,
+    answer,
+    timeoutMs: config.reply.timeout_ms
+  });
+
+  const record = { at: new Date().toISOString(), agent, session_id: sessionId, answer, ...result };
+  await orchestrator.tracker.updateIssue(issue.id, { last_reply: record });
+  orchestrator.notifier.forget(issue.id);
+  orchestrator.waitingSince.delete(issue.id);
+  return { ok: result.ok, reply: record };
+}
+
+function notFoundError(message) {
+  const error = new Error(message);
+  error.code = "issue_not_found";
+  error.status = 404;
+  return error;
 }
 
 async function suggestFor(orchestrator, folder) {

@@ -10,6 +10,7 @@ let editingId = null;
 let deleteArmedId = null;
 let archiveOpen = false;
 const openEvidence = new Set();
+const replyDrafts = new Map();
 
 const THEMES = ["apple", "pink", "blue"];
 const THEME_KEY = "symphony.theme";
@@ -37,6 +38,10 @@ composerForm.addEventListener("submit", onComposerSubmit);
 boardEl.addEventListener("click", onBoardClick);
 boardEl.addEventListener("change", onBoardChange);
 boardEl.addEventListener("submit", onBoardSubmit);
+boardEl.addEventListener("input", (event) => {
+  const form = event.target.closest("[data-reply-form]");
+  if (form) replyDrafts.set(form.dataset.replyForm, event.target.value);
+});
 
 config = await fetchJson("/api/config");
 fillSelect(composerForm.elements.state, config.active_states.map((state) => ({ value: state, text: state })));
@@ -61,6 +66,7 @@ async function refresh() {
   }
 
   if (editingId && !issues.some((issue) => issue.id === editingId)) editingId = null;
+  if (document.activeElement?.closest?.("[data-reply-form]")) return;
   if (deleteArmedId && !issues.some((issue) => issue.id === deleteArmedId)) deleteArmedId = null;
 
   renderMetrics();
@@ -196,6 +202,22 @@ async function onBoardChange(event) {
 }
 
 async function onBoardSubmit(event) {
+  const replyForm = event.target.closest("[data-reply-form]");
+  if (replyForm) {
+    event.preventDefault();
+    const issueId = replyForm.dataset.replyForm;
+    const answer = replyForm.elements.answer.value.trim();
+    if (!answer) return;
+    try {
+      await send(`/api/issues/${encodeURIComponent(issueId)}/reply`, "POST", { answer });
+    } catch (error) {
+      return showBanner(`Could not send the answer: ${error.message}`);
+    }
+    clearBanner();
+    replyDrafts.delete(issueId);
+    return refresh();
+  }
+
   const form = event.target.closest("[data-edit-form]");
   if (!form) return;
   event.preventDefault();
@@ -307,6 +329,7 @@ function card(issue, claim, failure, external = []) {
       </p>
       ${claim ? `<p class="meta live"><span class="live-dot"></span>${escapeHtml(claim.codex_live_session?.last_codex_message || "session starting…")}</p>` : ""}
       ${external.map(sessionLine).join("")}
+      ${questionBlock(issue, external)}
       ${evidenceBlock(issue)}
       ${failure ? `<p class="meta error">retry ${escapeHtml(failure.retry_after || "now")}: ${escapeHtml(failure.last_error || "")}</p>` : ""}
       <div class="card-actions">
@@ -378,6 +401,37 @@ function sessionsFor(issue) {
     const cwd = String(session.cwd || "");
     return cwd === root || cwd.startsWith(`${root}/`);
   });
+}
+
+// A session that ended its turn with a question is waiting on a person. Show what it
+// asked, and offer to answer only when nothing is still open in that folder -- resuming
+// a conversation beside a live terminal makes two processes fight over it.
+function questionBlock(issue, external) {
+  const asking = external.find((session) => session.phase === "waiting" && session.question);
+  const question = asking?.question || (external.length ? null : issue.last_reply ? null : null);
+  if (!asking && !issue.last_reply) return "";
+
+  const blocked = external.length > 0;
+  const draft = replyDrafts.get(issue.id) ?? "";
+  const reply = issue.last_reply;
+
+  return `
+    <div class="question">
+      ${asking ? `<p class="question-text">${escapeHtml(asking.question)}</p>` : ""}
+      ${asking && blocked
+        ? `<p class="meta">A ${escapeHtml(asking.name)} session is still open here — answer it in your terminal.</p>`
+        : asking
+          ? `<form data-reply-form="${escapeAttr(issue.id)}">
+              <textarea name="answer" rows="2" placeholder="Answer and send it back to the session">${escapeHtml(draft)}</textarea>
+              <div class="card-actions">
+                <button type="submit" class="primary">Send answer</button>
+                <span class="hint">resumes ${escapeHtml(asking.name)} in this folder</span>
+              </div>
+            </form>`
+          : ""}
+      ${reply ? `<p class="meta ${reply.ok ? "live" : "error"}">sent ${escapeHtml(relativeTime(reply.at))}: ${escapeHtml(String(reply.answer).slice(0, 120))}${reply.ok ? "" : " — delivery failed"}</p>` : ""}
+    </div>
+  `;
 }
 
 // Proof of work: what the last run changed and whether the project's checks passed.

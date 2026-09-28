@@ -97,6 +97,38 @@ question within that window and nothing is sent, because you were already there.
 A browser popup is deliberately not the alerting mechanism — it only works while the
 board is open, which is exactly when you do not need it.
 
+### Answering a question from the board
+
+A session that ends its turn with a question is waiting on a person, and the card shows
+what it asked. When it is safe to do so, the card also takes the answer and sends it
+back:
+
+```yaml
+reply:
+  enabled: true
+  timeout_ms: 900000
+```
+
+`POST /api/issues/<id>/reply` with `{"answer": "..."}` resumes that conversation by id —
+`claude --resume <session>` or `codex exec resume <session>` — in the task's folder, and
+records the result on the issue as `last_reply`.
+
+Two things are worth knowing about how this works.
+
+**It cannot type into your terminal.** Injecting keystrokes into another process's TTY is
+blocked by the operating system, and rightly so. What it does instead is resume the same
+conversation in a new process, which is a different thing.
+
+**Which means it refuses while your terminal is open.** Resuming beside a live session
+puts two processes on one conversation, and this project already hit that collision once.
+So the card shows the question either way, but the answer box appears only when nothing is
+running in that folder — otherwise it says to answer in the terminal. In practice the box
+is for runs Symphony dispatched itself, which leave no terminal behind.
+
+The answer is passed to the CLI as an argument rather than through a shell, so quotes,
+backticks and semicolons in what you type stay text. There is a test that tries to make
+an answer run a command and asserts it does not.
+
 ### One worker per folder
 
 A folder holds one worker at a time (`agent.max_concurrent_agents_per_folder`), and
@@ -153,6 +185,7 @@ It includes:
 - Done ages into Archive on its own, and auto-dispatch is refused for folders with no undo.
 - Proof of work: every finished run records what it changed and whether the project's checks pass.
 - Desktop notifications when a session is waiting on you or a check fails.
+- The question a session is waiting on, shown on its card and answerable from there.
 - One worker per folder, and never one beside a session you already have open.
 - Live session detail: each running session's topic and current activity, read from the CLI's own transcript.
 - Spec section 10/11 reconciliation: a run whose card leaves the active states is actually terminated.

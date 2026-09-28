@@ -56,6 +56,7 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
   const guard = raw.dispatch_guard || {};
   const verify = raw.verify || {};
   const notify = raw.notify || {};
+  const reply = raw.reply || {};
 
   const provider = Object.fromEntries(Object.entries(tracker.provider || {}).map(([key, value]) => {
     if (key === "path" || key.endsWith("_path")) return [key, expandPathValue(resolveEnvRef(value, env), workflowDir, env)];
@@ -83,6 +84,10 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
       on: arrayOfStrings(notify.on).map((name) => name.trim()).filter(Boolean),
       command: stringOrNull(notify.command),
       after_waiting_ms: positiveInteger(notify.after_waiting_ms, 60000)
+    },
+    reply: {
+      enabled: reply.enabled !== false,
+      timeout_ms: positiveInteger(reply.timeout_ms, 900000)
     },
     verify: {
       enabled: verify.enabled !== false,

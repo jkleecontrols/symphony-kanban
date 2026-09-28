@@ -701,3 +701,36 @@ pre,
   font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: pre-wrap;
 }
+
+/* --- a session's question, and the answer going back to it --- */
+.question {
+  margin-top: 9px;
+  padding: 9px 10px;
+  border-left: 3px solid var(--warn);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in srgb, var(--warn) 7%, transparent);
+}
+
+.question-text {
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 150px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--ink);
+}
+
+.question form {
+  margin-top: 8px;
+  display: grid;
+  gap: 7px;
+}
+
+.question textarea {
+  font-size: 12px;
+}
+
+.question .card-actions {
+  margin-top: 0;
+  align-items: center;
+}
