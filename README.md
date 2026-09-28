@@ -93,6 +93,25 @@ drawer at the top of the Done column; the Done cards that are not archived yet s
 directly below it. Any card in a terminal state gets a one-click `Archive` button, and
 the drawer stays open or closed across refreshes.
 
+## Operator API
+
+The board's own endpoints (`/api/config`, `/api/issues`, `/api/state`, `/api/logs`) are
+extensions: the spec's tracker contract is a read kernel and says nothing about creating
+or editing tasks. Alongside them the server exposes the spec's operator surface:
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/v1/state` | running claims, retries, `codex_totals`, live external sessions |
+| `GET /api/v1/<identifier>` | one issue with its claim, failure, sessions and history |
+| `POST /api/v1/refresh` | runs a poll and reconciliation immediately |
+
+Every error is the spec envelope, `{"error":{"code":"...","message":"..."}}`.
+
+A run attempt reports the spec's phases as it goes — `PreparingWorkspace`,
+`BuildingPrompt`, `LaunchingAgentProcess`, `StreamingTurn`, `Finishing` — and ends on
+`Succeeded`, `Failed`, `TimedOut`, `Stalled` or `CanceledByReconciliation`. Failure
+backoff is the spec's `10000 * 2^(attempt-1)`, capped by `agent.max_retry_backoff_ms`.
+
 ## Reconciliation
 
 Every tick, running issues are checked against the tracker. A card moved to a terminal
@@ -211,6 +230,26 @@ implementation of both halves.
 
 Agents shipped as `NOT CONFIGURED YET` print an `agent_not_configured` event and exit
 non-zero, so an unconfigured agent fails loudly instead of appearing to do nothing.
+
+## Where This Differs From the Spec
+
+This is an independent implementation of `SPEC.md`, not a port of the Elixir reference.
+Three departures are deliberate and worth knowing:
+
+- **No `codex app-server` protocol.** The spec targets a session protocol with thread and
+  turn ids, token accounting and tool advertisement. This runs `bash -lc <command>` and
+  reads the agent's stdout instead. That is what makes per-task agent routing possible —
+  the spec has a single `codex.command` — but it means the live-session fields are filled
+  from whatever a CLI prints rather than from a protocol.
+- **`workspace_path` escapes the workspace root.** The spec makes workspace isolation
+  mandatory. Pointing a task at a folder you already work in breaks that on purpose, which
+  is why `remove()` refuses those folders and the demo hooks that wrote into the working
+  directory were deleted. Keep those folders under version control.
+- **Writes to the tracker.** The spec's adapter is a read kernel; board CRUD is an
+  extension of it.
+
+Still missing: the spec's continuation retry (a fixed 1000 ms re-queue after a normal
+exit) and `codex_rate_limits`, which has no source without the app-server protocol.
 
 ## Known Limits
 

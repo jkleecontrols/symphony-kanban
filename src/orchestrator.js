@@ -4,6 +4,14 @@ import { WorkspaceManager } from "./workspace.js";
 import { normalizeState, nowIso, sleep } from "./utils.js";
 import { scanExternalSessions, sessionsForPath } from "./sessions.js";
 
+// Spec section 3 run-attempt terminal statuses.
+function terminalStatusFor(error) {
+  if (error?.code === "canceled_by_reconciliation") return "CanceledByReconciliation";
+  if (error?.code === "turn_timeout") return "TimedOut";
+  if (error?.code === "stall_timeout") return "Stalled";
+  return "Failed";
+}
+
 export class Orchestrator {
   constructor(workflow, logger) {
     this.workflow = workflow;
@@ -11,9 +19,12 @@ export class Orchestrator {
     this.logger = logger;
     this.tracker = createTracker(this.config);
     this.workspaceManager = new WorkspaceManager(this.config, logger);
-    this.runner = new AgentRunner(this.config, workflow, this.tracker, this.workspaceManager, logger, (issueId, liveSession) => {
+    this.runner = new AgentRunner(this.config, workflow, this.tracker, this.workspaceManager, logger, (issueId, update) => {
       const claim = this.claims.get(issueId);
-      if (claim) claim.codex_live_session = { ...liveSession };
+      if (!claim) return;
+      if (update.phase && claim.status !== "Canceling") claim.status = update.phase;
+      claim.codex_live_session = { ...(claim.codex_live_session || {}), ...update };
+      claim.heartbeat_at = nowIso();
     });
     this.claims = new Map();
     this.failures = new Map();
@@ -24,6 +35,8 @@ export class Orchestrator {
     this.dispatchHistory = [];
     // Folders where a session of the user's own was seen, and how many polls it has been gone.
     this.externalWatch = new Map();
+    // Spec section 4: aggregate agent usage across the process lifetime.
+    this.codexTotals = { input_tokens: 0, output_tokens: 0, total_tokens: 0, runtime_seconds: 0, turns: 0, runs: 0 };
     // Injectable so tests can drive the watcher without real processes.
     this.scanSessions = scanExternalSessions;
   }
@@ -85,19 +98,23 @@ export class Orchestrator {
       attempt,
       claimed_at: nowIso(),
       heartbeat_at: nowIso(),
-      status: "running",
+      status: "PreparingWorkspace",
       codex_live_session: null,
       promise: null
     };
     claim.promise = this.runner.run(issue, attempt)
       .then((result) => {
-        this.dispatchHistory.push({ issue_id: issue.id, identifier: issue.identifier, finished_at: nowIso(), status: "completed", reason: result.reason });
+        claim.status = "Succeeded";
+        this.recordUsage(result.liveSession, claim);
+        this.dispatchHistory.push({ issue_id: issue.id, identifier: issue.identifier, finished_at: nowIso(), status: "Succeeded", reason: result.reason });
         this.failures.delete(issue.id);
         this.logger.event("info", "issue_completed", { issue_id: issue.id, identifier: issue.identifier });
       })
       .catch((error) => {
+        claim.status = terminalStatusFor(error);
+        this.recordUsage(claim.codex_live_session, claim);
         if (error?.code === "canceled_by_reconciliation") {
-          this.dispatchHistory.push({ issue_id: issue.id, identifier: issue.identifier, finished_at: nowIso(), status: "canceled", reason: error.message });
+          this.dispatchHistory.push({ issue_id: issue.id, identifier: issue.identifier, finished_at: nowIso(), status: claim.status, reason: error.message });
           this.logger.event("info", "issue_canceled", { issue_id: issue.id, identifier: issue.identifier, reason: error.message });
           return;
         }
@@ -106,7 +123,7 @@ export class Orchestrator {
         record.last_error = error.message;
         record.retry_after = new Date(Date.now() + this.retryBackoff(record.attempts)).toISOString();
         this.failures.set(issue.id, record);
-        this.dispatchHistory.push({ issue_id: issue.id, identifier: issue.identifier, finished_at: nowIso(), status: "failed", error: error.message });
+        this.dispatchHistory.push({ issue_id: issue.id, identifier: issue.identifier, finished_at: nowIso(), status: claim.status, error: error.message });
         this.logger.event("error", "issue_failed", { issue_id: issue.id, identifier: issue.identifier, attempts: record.attempts, retry_after: record.retry_after, error: error.message });
       })
       .finally(() => {
@@ -135,8 +152,19 @@ export class Orchestrator {
   }
 
   retryBackoff(attempts) {
-    const delay = 1000 * 2 ** Math.min(attempts - 1, 8);
+    const delay = 10000 * 2 ** Math.min(attempts - 1, 8);
     return Math.min(delay, this.config.agent.max_retry_backoff_ms);
+  }
+
+  recordUsage(liveSession, claim) {
+    if (!liveSession) return;
+    this.codexTotals.input_tokens += Number(liveSession.codex_input_tokens || 0);
+    this.codexTotals.output_tokens += Number(liveSession.codex_output_tokens || 0);
+    this.codexTotals.total_tokens += Number(liveSession.codex_total_tokens || 0);
+    this.codexTotals.turns += Number(liveSession.turn_count || 0);
+    this.codexTotals.runs += 1;
+    const started = Date.parse(claim.claimed_at);
+    if (Number.isFinite(started)) this.codexTotals.runtime_seconds += Math.round((Date.now() - started) / 1000);
   }
 
   // Spec section 10: every tick, check what the tracker now says about running issues and
@@ -247,8 +275,8 @@ export class Orchestrator {
   }
 
   async terminateRun(issue, claim, reason, cleanWorkspace) {
-    if (claim.status === "canceling") return;
-    claim.status = "canceling";
+    if (claim.status === "Canceling") return;
+    claim.status = "Canceling";
     this.logger.event("info", "run_canceled", {
       issue_id: issue.id,
       identifier: issue.identifier,
@@ -319,6 +347,7 @@ export class Orchestrator {
       claims: [...this.claims.values()].map(({ promise, ...claim }) => claim),
       failures: Object.fromEntries(this.failures),
       session_watch: Object.fromEntries(this.externalWatch),
+      codex_totals: { ...this.codexTotals },
       dispatch_history: this.dispatchHistory.slice(-50)
     };
   }

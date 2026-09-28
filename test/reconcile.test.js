@@ -77,7 +77,7 @@ test("moving a running issue to a terminal state kills the agent and clears the 
   assert.equal(orchestrator.failures.has("local-1"), false, "a cancellation is not a failure and earns no retry");
 
   const history = orchestrator.snapshot().dispatch_history.at(-1);
-  assert.equal(history.status, "canceled");
+  assert.equal(history.status, "CanceledByReconciliation");
   assert.ok(JSON.parse(await fs.readFile(issuesPath, "utf8")).length === 1);
 });
 

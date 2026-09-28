@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import fsp from "node:fs/promises";
 import { expandPathValue, normalizeState, uniqueLowerLabels } from "./utils.js";
-import { scanExternalSessions } from "./sessions.js";
+import { scanExternalSessions, sessionsForPath } from "./sessions.js";
 
 export function createServer(orchestrator, logger) {
   const publicDir = path.resolve(orchestrator.workflow.dir, "public");
@@ -11,6 +11,19 @@ export function createServer(orchestrator, logger) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://localhost");
     try {
+      // Spec section 17: the conformant operator surface.
+      if (url.pathname === "/api/v1/state") return json(res, await stateOf(orchestrator));
+      if (url.pathname === "/api/v1/refresh" && req.method === "POST") {
+        await orchestrator.poll();
+        return json(res, { ok: true, last_poll_at: orchestrator.lastPollAt });
+      }
+      if (url.pathname.startsWith("/api/v1/")) {
+        const identifier = decodeURIComponent(url.pathname.slice("/api/v1/".length));
+        const detail = await issueDetail(orchestrator, identifier);
+        if (!detail) return fail(res, 404, "issue_not_found", `no issue with identifier ${identifier}`);
+        return json(res, detail);
+      }
+
       if (url.pathname === "/api/config") return json(res, boardConfig(orchestrator));
       if (url.pathname === "/api/state") {
         // Sessions the user started themselves belong to a task too, so the board can
@@ -40,19 +53,19 @@ export function createServer(orchestrator, logger) {
 
       if (url.pathname.startsWith("/api/issues/")) {
         const id = decodeURIComponent(url.pathname.split("/")[3] || "");
-        if (!id) return json(res, { error: "issue id is required" }, 400);
+        if (!id) return fail(res, 400, "invalid_request", "issue id is required");
 
         if (req.method === "PATCH") {
           const patch = await buildPatch(orchestrator, await readJson(req));
           const updated = await orchestrator.tracker.updateIssue(id, patch);
-          if (!updated) return json(res, { error: `unknown issue: ${id}` }, 404);
+          if (!updated) return fail(res, 404, "issue_not_found", `unknown issue: ${id}`);
           logger.event("info", "issue_updated", { issue_id: id, identifier: updated.identifier, fields: Object.keys(patch) });
           return json(res, { ok: true, issue: updated });
         }
 
         if (req.method === "DELETE") {
           const removed = await orchestrator.tracker.deleteIssue(id);
-          if (!removed) return json(res, { error: `unknown issue: ${id}` }, 404);
+          if (!removed) return fail(res, 404, "issue_not_found", `unknown issue: ${id}`);
           await orchestrator.forget(id);
           logger.event("info", "issue_deleted", { issue_id: id, identifier: removed.identifier });
           return json(res, { ok: true, issue: removed });
@@ -64,7 +77,7 @@ export function createServer(orchestrator, logger) {
         return json(res, { ok: true });
       }
 
-      if (url.pathname.startsWith("/api/")) return json(res, { error: "not found" }, 404);
+      if (url.pathname.startsWith("/api/")) return fail(res, 404, "not_found", `no route for ${req.method} ${url.pathname}`);
 
       if (url.pathname === "/" || url.pathname === "/index.html") {
         return file(res, path.join(publicDir, "index.html"), "text/html; charset=utf-8");
@@ -79,9 +92,34 @@ export function createServer(orchestrator, logger) {
         path: url.pathname,
         error: error.message
       });
-      return json(res, { error: error.message }, status);
+      return fail(res, status, error.code === "invalid_request" ? "invalid_request" : "internal_error", error.message);
     }
   });
+}
+
+async function stateOf(orchestrator) {
+  const names = orchestrator.config.sessions.names;
+  return {
+    ...orchestrator.snapshot(),
+    external_sessions: await scanExternalSessions(names.length ? names : undefined)
+  };
+}
+
+async function issueDetail(orchestrator, identifier) {
+  const wanted = identifier.trim().toLowerCase();
+  const issues = await orchestrator.tracker.readIssues();
+  const issue = issues.find((candidate) => candidate.identifier.toLowerCase() === wanted);
+  if (!issue) return null;
+  const claim = orchestrator.claims.get(issue.id);
+  const names = orchestrator.config.sessions.names;
+  const sessions = await scanExternalSessions(names.length ? names : undefined);
+  return {
+    issue,
+    claim: claim ? { ...claim, promise: undefined } : null,
+    failure: orchestrator.failures.get(issue.id) || null,
+    external_sessions: sessionsForPath(sessions, issue.workspace_path),
+    dispatch_history: orchestrator.snapshot().dispatch_history.filter((entry) => entry.issue_id === issue.id)
+  };
 }
 
 function boardConfig(orchestrator) {
@@ -200,6 +238,11 @@ function invalid(message) {
   error.code = "invalid_request";
   error.status = 400;
   return error;
+}
+
+// Spec section 17: errors carry {"error":{"code","message"}}.
+function fail(res, status, code, message) {
+  return json(res, { error: { code, message } }, status);
 }
 
 function json(res, value, status = 200) {

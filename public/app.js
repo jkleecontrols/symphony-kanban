@@ -467,7 +467,8 @@ async function send(url, method, body) {
 async function errorText(response, url) {
   try {
     const payload = await response.json();
-    if (payload?.error) return payload.error;
+    if (typeof payload?.error === "string") return payload.error;
+    if (payload?.error?.message) return payload.error.message;
   } catch {
     // fall through to the status line
   }

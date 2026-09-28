@@ -26,6 +26,7 @@ export class AgentRunner {
   }
 
   async run(issue, attempt) {
+    this.phase(issue, "PreparingWorkspace");
     const workspace = await this.workspaceManager.prepare(issue);
     await this.workspaceManager.beforeRun(workspace.path);
     const threadId = makeId("thread");
@@ -59,6 +60,7 @@ export class AgentRunner {
         liveSession.turn_id = turnId;
         liveSession.session_id = `${threadId}-${turnId}`;
         liveSession.turn_count = turn;
+        this.phase(issue, "BuildingPrompt");
         const prompt = renderPrompt(this.workflow.promptTemplate, currentIssue, attempt);
         await this.runTurn(currentIssue, prompt, attempt, turn, workspace.path, liveSession, control);
 
@@ -68,6 +70,7 @@ export class AgentRunner {
         const active = this.config.tracker.active_states.includes(String(currentIssue.state).trim().toLowerCase());
         if (!active || !currentIssue.dispatchable) break;
       }
+      this.phase(issue, "Finishing");
       return { reason: "normal", workspace, liveSession };
     } finally {
       this.controls.delete(issue.id);
@@ -86,6 +89,7 @@ export class AgentRunner {
         requested_agent: issue.agent ?? null,
         turn
       });
+      this.phase(issue, "LaunchingAgentProcess");
       const child = spawn("bash", ["-lc", selectedAgent.command], {
         cwd,
         env: childEnv,
@@ -100,17 +104,19 @@ export class AgentRunner {
       const startedAt = Date.now();
       let lastOutputAt = Date.now();
       let settled = false;
-      const timeout = setTimeout(() => stop("turn timeout"), this.config.codex.turn_timeout_ms);
+      const timeout = setTimeout(() => stop("turn timeout", "turn_timeout"), this.config.codex.turn_timeout_ms);
       const stall = this.config.codex.stall_timeout_ms > 0 ? setInterval(() => {
-        if (Date.now() - lastOutputAt > this.config.codex.stall_timeout_ms) stop("stall timeout");
+        if (Date.now() - lastOutputAt > this.config.codex.stall_timeout_ms) stop("stall timeout", "stall_timeout");
       }, Math.min(this.config.codex.stall_timeout_ms, 5000)) : null;
 
-      const stop = (reason) => {
+      const stop = (reason, code) => {
         if (settled) return;
         settled = true;
         child.kill("SIGTERM");
         cleanup();
-        reject(new Error(reason));
+        const error = new Error(reason);
+        error.code = code;
+        reject(error);
       };
       const cleanup = () => {
         clearTimeout(timeout);
@@ -128,6 +134,7 @@ export class AgentRunner {
         }
       };
 
+      this.phase(issue, "StreamingTurn");
       child.stdout.on("data", (chunk) => handleOutput(chunk, "stdout"));
       child.stderr.on("data", (chunk) => handleOutput(chunk, "stderr"));
       child.on("error", (error) => {
@@ -150,6 +157,12 @@ export class AgentRunner {
         }
       });
     });
+  }
+
+  phase(issue, name) {
+    const control = this.controls.get(issue.id);
+    if (control) control.phase = name;
+    this.onUpdate(issue.id, { phase: name });
   }
 
   resolveAgent(issue) {
