@@ -650,3 +650,54 @@ pre,
   max-height: 64px;
   overflow: hidden;
 }
+
+/* --- proof of work: the last run's changes and check result --- */
+.evidence {
+  margin-top: 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--soft);
+  font-size: 12px;
+}
+
+.evidence > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  cursor: pointer;
+  color: var(--muted);
+  list-style: none;
+}
+
+.evidence > summary::-webkit-details-marker { display: none; }
+
+.verdict {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border: 1px solid currentColor;
+}
+
+.evidence.pass { border-left: 3px solid var(--ok); }
+.evidence.pass .verdict { color: var(--ok); }
+.evidence.fail { border-left: 3px solid var(--bad); }
+.evidence.fail .verdict { color: var(--bad); }
+.evidence.unknown .verdict { color: var(--muted); }
+
+.evidence-body { padding: 0 9px 9px; }
+
+.evidence-output {
+  margin-top: 6px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+}

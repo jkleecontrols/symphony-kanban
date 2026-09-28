@@ -4,6 +4,7 @@ import path from "node:path";
 import fsp from "node:fs/promises";
 import { expandPathValue, normalizeState, uniqueLowerLabels } from "./utils.js";
 import { scanExternalSessions, sessionsForPath } from "./sessions.js";
+import { suggestCommand } from "./verify.js";
 
 export function createServer(orchestrator, logger) {
   const publicDir = path.resolve(orchestrator.workflow.dir, "public");
@@ -25,6 +26,10 @@ export function createServer(orchestrator, logger) {
       }
 
       if (url.pathname === "/api/config") return json(res, boardConfig(orchestrator));
+      if (url.pathname === "/api/suggest-verify") {
+        const folder = url.searchParams.get("path") || "";
+        return json(res, { command: await suggestFor(orchestrator, folder) });
+      }
       if (url.pathname === "/api/state") {
         // Sessions the user started themselves belong to a task too, so the board can
         // show a folder as busy even when Symphony did not dispatch the work.
@@ -97,6 +102,16 @@ export function createServer(orchestrator, logger) {
   });
 }
 
+async function suggestFor(orchestrator, folder) {
+  if (!folder.trim()) return null;
+  try {
+    const expanded = expandPathValue(folder.trim(), orchestrator.workflow.dir);
+    return suggestCommand(await fsp.readdir(expanded));
+  } catch {
+    return null;
+  }
+}
+
 async function stateOf(orchestrator) {
   const names = orchestrator.config.sessions.names;
   return {
@@ -138,6 +153,8 @@ function boardConfig(orchestrator) {
       label: definition.label,
       description: definition.description
     })),
+    verify_enabled: config.verify.enabled,
+    default_verify_command: config.verify.command,
     polling_interval_ms: config.polling.interval_ms,
     tracker_kind: config.tracker.kind
   };
@@ -170,6 +187,7 @@ async function createIssue(orchestrator, body) {
     labels,
     agent,
     workspace_path: workspacePath,
+    verify_command: body.verify_command == null || String(body.verify_command).trim() === "" ? null : String(body.verify_command).trim(),
     dispatchable: body.dispatchable === undefined ? true : Boolean(body.dispatchable)
   });
 }
@@ -193,6 +211,10 @@ async function buildPatch(orchestrator, body) {
   }
   if ("agent" in body) patch.agent = resolveRequestedAgent(body.agent, config);
   if ("workspace_path" in body) patch.workspace_path = await resolveWorkspacePath(body.workspace_path, orchestrator);
+  if ("verify_command" in body) {
+    const command = body.verify_command == null ? "" : String(body.verify_command).trim();
+    patch.verify_command = command || null;
+  }
   if ("state" in body) {
     const state = resolveRequestedState(body.state, known);
     if (!state) throw invalid(`unknown state: ${body.state}. known states: ${known.states.join(", ")}`);

@@ -45,6 +45,37 @@ archive:
 A card that has sat in `from_state` untouched for `after_days` moves to `to_state` on the
 next poll, so finished work leaves the Done column without anyone tidying it.
 
+### Proof of work
+
+The point of the board is to review finished work rather than supervise it being done,
+and an agent's own account of itself is not evidence. So every run that finishes records
+two things on the card: what it changed inside the folder, and whether the project's own
+check still passes.
+
+A task carries its own `verify_command`; `verify.command` in `WORKFLOW.md` is the
+fallback for tasks that do not set one.
+
+```yaml
+verify:
+  enabled: true
+  command: null
+  timeout_ms: 300000
+```
+
+The card shows one line — `8 files, +162/-9 · checks passed` — with the command, exit
+code, duration and the tail of its output underneath. A failing check is recorded as
+failed with its output kept, since that is the output most worth reading. A task with no
+check command still records its diff and says plainly that no check was configured
+rather than implying success.
+
+The evidence lives on the issue in `last_run`, so it survives a restart, and
+`GET /api/suggest-verify?path=<folder>` proposes a command from what the folder contains
+(`package.json` to `npm test`, and so on) instead of guessing one and running it unasked.
+
+This covers the review half of the pitch. Branch-per-task and pull requests do not
+appear here on purpose: they are how a team hands work to reviewers, and they conflict
+with pointing a task at the folder you are already working in.
+
 ### The dispatch guard
 
 Auto-dispatch lets an agent write with nobody watching, and a task's folder is a folder
@@ -84,6 +115,7 @@ It includes:
 - Live running indicators for sessions Symphony dispatched *and* sessions you started yourself.
 - The board follows your sessions: a card's column is decided by what its session is doing.
 - Done ages into Archive on its own, and auto-dispatch is refused for folders with no undo.
+- Proof of work: every finished run records what it changed and whether the project's checks pass.
 - Live session detail: each running session's topic and current activity, read from the CLI's own transcript.
 - Spec section 10/11 reconciliation: a run whose card leaves the active states is actually terminated.
 

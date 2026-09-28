@@ -15,6 +15,8 @@ const MUTABLE_FIELDS = new Set([
   "dispatchable",
   "agent",
   "workspace_path",
+  "verify_command",
+  "last_run",
   "branch_name",
   "blocked_by"
 ]);
@@ -72,6 +74,8 @@ export class LocalJsonTracker {
         dispatchable: Boolean(input.dispatchable),
         agent: input.agent == null || input.agent === "" ? null : String(input.agent),
         workspace_path: input.workspace_path == null || input.workspace_path === "" ? null : String(input.workspace_path),
+        verify_command: input.verify_command == null || input.verify_command === "" ? null : String(input.verify_command),
+        last_run: input.last_run && typeof input.last_run === "object" ? input.last_run : null,
         created_at: now,
         updated_at: now
       };
@@ -93,6 +97,8 @@ export class LocalJsonTracker {
         else if (key === "priority") issue.priority = value == null || value === "" ? null : Number(value);
         else if (key === "agent") issue.agent = value == null || value === "" ? null : String(value);
         else if (key === "workspace_path") issue.workspace_path = value == null || value === "" ? null : String(value);
+        else if (key === "verify_command") issue.verify_command = value == null || value === "" ? null : String(value);
+        else if (key === "last_run") issue.last_run = value && typeof value === "object" ? value : null;
         else if (key === "title") issue.title = String(value ?? "").trim();
         else issue[key] = value == null ? null : String(value);
       }
@@ -156,6 +162,8 @@ export function normalizeIssue(input) {
     dispatchable: Boolean(input.dispatchable),
     agent: input.agent == null || input.agent === "" ? null : String(input.agent),
     workspace_path: input.workspace_path == null || input.workspace_path === "" ? null : String(input.workspace_path),
+    verify_command: input.verify_command == null || input.verify_command === "" ? null : String(input.verify_command),
+    last_run: input.last_run && typeof input.last_run === "object" ? input.last_run : null,
     created_at: input.created_at ?? null,
     updated_at: input.updated_at ?? null
   };

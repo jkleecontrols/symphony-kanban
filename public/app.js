@@ -9,6 +9,7 @@ let logs = [];
 let editingId = null;
 let deleteArmedId = null;
 let archiveOpen = false;
+const openEvidence = new Set();
 
 const THEMES = ["apple", "pink", "blue"];
 const THEME_KEY = "symphony.theme";
@@ -86,6 +87,7 @@ async function onComposerSubmit(event) {
     agent: form.agent.value || null,
     labels: parseLabels(form.labels.value),
     workspace_path: form.workspace_path.value.trim() || null,
+    verify_command: form.verify_command.value.trim() || null,
     dispatchable: form.dispatchable.checked
   };
 
@@ -105,6 +107,15 @@ async function onBoardClick(event) {
   const summary = event.target.closest("[data-archive] > summary");
   if (summary) {
     archiveOpen = !summary.parentElement.open;
+    return;
+  }
+
+  // Keep an opened evidence panel open across the three-second re-render.
+  const evidence = event.target.closest("[data-evidence] > summary");
+  if (evidence) {
+    const id = evidence.parentElement.dataset.evidence;
+    if (evidence.parentElement.open) openEvidence.delete(id);
+    else openEvidence.add(id);
     return;
   }
 
@@ -199,6 +210,7 @@ async function onBoardSubmit(event) {
       labels: parseLabels(fields.labels.value),
       agent: fields.agent.value || null,
       workspace_path: fields.workspace_path.value.trim() || null,
+      verify_command: fields.verify_command.value.trim() || null,
       dispatchable: fields.dispatchable.checked
     });
   } catch (error) {
@@ -295,6 +307,7 @@ function card(issue, claim, failure, external = []) {
       </p>
       ${claim ? `<p class="meta live"><span class="live-dot"></span>${escapeHtml(claim.codex_live_session?.last_codex_message || "session starting…")}</p>` : ""}
       ${external.map(sessionLine).join("")}
+      ${evidenceBlock(issue)}
       ${failure ? `<p class="meta error">retry ${escapeHtml(failure.retry_after || "now")}: ${escapeHtml(failure.last_error || "")}</p>` : ""}
       <div class="card-actions">
         <select data-inline="state" data-issue-id="${escapeAttr(issue.id)}" title="State">
@@ -328,6 +341,7 @@ function editCard(issue) {
         <label><span>Priority</span><input name="priority" type="number" min="1" step="1" value="${issue.priority ?? ""}"></label>
         <label><span>Labels</span><input name="labels" type="text" value="${escapeAttr(issue.labels.join(", "))}"></label>
         <label><span>Project folder</span><input name="workspace_path" type="text" value="${escapeAttr(issue.workspace_path || "")}" placeholder="blank = managed workspace"></label>
+        <label><span>Check command</span><input name="verify_command" type="text" value="${escapeAttr(issue.verify_command || "")}" placeholder="npm test"></label>
         <label><span>Assigned AI</span>
           <select name="agent">
             <option value="">No AI</option>
@@ -364,6 +378,26 @@ function sessionsFor(issue) {
     const cwd = String(session.cwd || "");
     return cwd === root || cwd.startsWith(`${root}/`);
   });
+}
+
+// Proof of work: what the last run changed and whether the project's checks passed.
+function evidenceBlock(issue) {
+  const run = issue.last_run;
+  if (!run) return "";
+  const verify = run.verify;
+  const mark = !verify ? "—" : verify.ok ? "PASS" : "FAIL";
+  const cls = !verify ? "unknown" : verify.ok ? "pass" : "fail";
+  const detail = verify?.output_tail ? `<pre class="evidence-output">${escapeHtml(verify.output_tail.slice(-1200))}</pre>` : "";
+  return `
+    <details class="evidence ${cls}" data-evidence="${escapeAttr(issue.id)}" ${openEvidence.has(issue.id) ? "open" : ""}>
+      <summary><span class="verdict">${mark}</span> ${escapeHtml(run.summary || "last run")}</summary>
+      <div class="evidence-body">
+        <p class="meta">${escapeHtml(run.at || "")}${run.agent ? ` · ${escapeHtml(agentLabel(run.agent))}` : ""}</p>
+        ${verify ? `<p class="meta">${escapeHtml(verify.command)} → exit ${escapeHtml(String(verify.exit_code))}${verify.timed_out ? " (timed out)" : ""} · ${Math.round((verify.duration_ms || 0) / 1000)}s</p>` : `<p class="meta">no check command set for this task</p>`}
+        ${detail}
+      </div>
+    </details>
+  `;
 }
 
 function sessionLine(session) {

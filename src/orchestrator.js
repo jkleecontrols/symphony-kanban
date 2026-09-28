@@ -5,6 +5,7 @@ import { normalizeState, nowIso, sleep } from "./utils.js";
 import { scanExternalSessions, sessionsForPath } from "./sessions.js";
 import { changesSince, inspect } from "./gitguard.js";
 import { lastActivity } from "./transcripts.js";
+import { runVerification, summarize } from "./verify.js";
 
 // The busiest session in a folder decides the card: one turn running anywhere in it
 // means the task is in progress.
@@ -174,7 +175,7 @@ export class Orchestrator {
     claim.promise = this.runner.run(issue, attempt)
       .then(async (result) => {
         claim.status = "Succeeded";
-        await this.recordChanges(issue, baseline);
+        await this.recordEvidence(issue, baseline, claim);
         this.recordUsage(result.liveSession, claim);
         this.dispatchHistory.push({ issue_id: issue.id, identifier: issue.identifier, finished_at: nowIso(), status: "Succeeded", reason: result.reason });
         this.failures.delete(issue.id);
@@ -226,17 +227,48 @@ export class Orchestrator {
     return Math.min(delay, this.config.agent.max_retry_backoff_ms);
   }
 
-  // What the run changed inside the folder, so the blast radius is visible afterwards.
-  async recordChanges(issue, baseline) {
-    if (!baseline?.git) return;
-    try {
-      const changes = await changesSince(issue.workspace_path, baseline);
-      if (!changes) return;
-      this.lastChanges.set(issue.id, changes);
-      this.logger.event("info", "workspace_changes", { issue_id: issue.id, identifier: issue.identifier, ...changes });
-    } catch (error) {
-      this.logger.event("warn", "workspace_diff_failed", { issue_id: issue.id, error: error.message });
+  // Proof of work: what the run changed, and whether the project's own checks still
+  // pass. The agent's account of itself is not evidence; this is what gets reviewed.
+  async recordEvidence(issue, baseline, claim) {
+    const evidence = {
+      at: nowIso(),
+      agent: claim?.codex_live_session?.agent || issue.agent || null,
+      attempt: claim?.attempt ?? null,
+      changes: null,
+      verify: null,
+      summary: null
+    };
+
+    if (baseline?.git) {
+      try {
+        evidence.changes = await changesSince(issue.workspace_path, baseline);
+      } catch (error) {
+        this.logger.event("warn", "workspace_diff_failed", { issue_id: issue.id, error: error.message });
+      }
     }
+
+    const command = issue.verify_command || this.config.verify.command;
+    if (this.config.verify.enabled && command && issue.workspace_path) {
+      this.logger.event("info", "verification_started", { issue_id: issue.id, identifier: issue.identifier, command });
+      evidence.verify = await runVerification(command, issue.workspace_path, this.config.verify.timeout_ms);
+      this.logger.event(evidence.verify.ok ? "info" : "warn", "verification_finished", {
+        issue_id: issue.id,
+        identifier: issue.identifier,
+        ok: evidence.verify.ok,
+        exit_code: evidence.verify.exit_code,
+        duration_ms: evidence.verify.duration_ms
+      });
+    }
+
+    evidence.summary = summarize(evidence);
+    if (evidence.changes) this.lastChanges.set(issue.id, evidence.changes);
+
+    try {
+      await this.tracker.updateIssue(issue.id, { last_run: evidence });
+    } catch (error) {
+      this.logger.event("warn", "evidence_write_failed", { issue_id: issue.id, error: error.message });
+    }
+    this.logger.event("info", "run_evidence", { issue_id: issue.id, identifier: issue.identifier, summary: evidence.summary });
   }
 
   recordUsage(liveSession, claim) {

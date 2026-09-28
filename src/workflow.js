@@ -54,6 +54,7 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
   const sessions = raw.sessions || {};
   const archive = raw.archive || {};
   const guard = raw.dispatch_guard || {};
+  const verify = raw.verify || {};
 
   const provider = Object.fromEntries(Object.entries(tracker.provider || {}).map(([key, value]) => {
     if (key === "path" || key.endsWith("_path")) return [key, expandPathValue(resolveEnvRef(value, env), workflowDir, env)];
@@ -74,6 +75,11 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
     },
     dispatch_guard: {
       require_git: guard.require_git !== false
+    },
+    verify: {
+      enabled: verify.enabled !== false,
+      command: stringOrNull(verify.command),
+      timeout_ms: positiveInteger(verify.timeout_ms, 300000)
     },
     sessions: {
       watch: sessions.watch !== false,

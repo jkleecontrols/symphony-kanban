@@ -46,6 +46,12 @@ archive:
   from_state: Done
   to_state: Archive
   after_days: 2
+verify:
+  # After an agent run, run the task's own check and attach the result to the card.
+  # A task sets its own `verify_command`; this is the fallback for tasks that do not.
+  enabled: true
+  command: null
+  timeout_ms: 300000
 dispatch_guard:
   # Auto-dispatch writes with nobody watching. Refuse it unless the folder is a git
   # repository with at least one commit, so whatever happens can be seen and undone.
