@@ -51,6 +51,7 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
   const hooks = raw.hooks || {};
   const agent = raw.agent || {};
   const codex = raw.codex || {};
+  const sessions = raw.sessions || {};
 
   const provider = Object.fromEntries(Object.entries(tracker.provider || {}).map(([key, value]) => {
     if (key === "path" || key.endsWith("_path")) return [key, expandPathValue(resolveEnvRef(value, env), workflowDir, env)];
@@ -63,6 +64,13 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
 
   const resolved = {
     agents,
+    sessions: {
+      watch: sessions.watch !== false,
+      names: arrayOfStrings(sessions.names).map((name) => name.trim()).filter(Boolean),
+      from_states: arrayOfStrings(sessions.from_states).map(normalizeState).filter(Boolean),
+      to_state: stringOrNull(sessions.to_state),
+      settle_polls: positiveInteger(sessions.settle_polls, 2)
+    },
     tracker: {
       kind: tracker.kind || "",
       provider,

@@ -25,6 +25,19 @@ hooks:
     printf "workspace ready\n" > .symphony_workspace
   # before_run and after_run run in the task's folder, whichever folder that is. Leave
   # them unset unless you want files written into the folders your tasks point at.
+sessions:
+  # A session you start yourself in a task's folder counts as that task's work. When it
+  # goes away, the task moves on. Set watch to false to turn this off.
+  watch: true
+  names:
+    - claude
+    - codex
+    - aider
+    - goose
+  from_states:
+    - In Progress
+  to_state: Human Review
+  settle_polls: 2
 agents:
   mock:
     label: Mock demo agent

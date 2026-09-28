@@ -10,6 +10,19 @@ export class AgentRunner {
     this.workspaceManager = workspaceManager;
     this.logger = logger;
     this.onUpdate = onUpdate;
+    // Live runs, so reconciliation can stop one when its issue leaves the active states.
+    this.controls = new Map();
+  }
+
+  // Spec section 10: a run whose issue is no longer routable is terminated, not left to
+  // finish. Returns false when nothing was running for that issue.
+  cancel(issueId, reason = "canceled") {
+    const control = this.controls.get(issueId);
+    if (!control) return false;
+    control.canceled = reason;
+    const child = control.child;
+    if (child && child.exitCode === null && !child.killed) child.kill("SIGTERM");
+    return true;
   }
 
   async run(issue, attempt) {
@@ -18,6 +31,8 @@ export class AgentRunner {
     const threadId = makeId("thread");
     let currentIssue = issue;
     const selectedAgent = this.resolveAgent(issue);
+    const control = { canceled: null, child: null };
+    this.controls.set(issue.id, control);
     const liveSession = {
       agent: selectedAgent.name,
       agent_command: selectedAgent.command,
@@ -39,12 +54,13 @@ export class AgentRunner {
 
     try {
       for (let turn = 1; turn <= this.config.agent.max_turns; turn += 1) {
+        if (control.canceled) throw canceledError(control.canceled);
         const turnId = makeId("turn");
         liveSession.turn_id = turnId;
         liveSession.session_id = `${threadId}-${turnId}`;
         liveSession.turn_count = turn;
         const prompt = renderPrompt(this.workflow.promptTemplate, currentIssue, attempt);
-        await this.runTurn(currentIssue, prompt, attempt, turn, workspace.path, liveSession);
+        await this.runTurn(currentIssue, prompt, attempt, turn, workspace.path, liveSession, control);
 
         const refreshed = await this.tracker.fetchIssuesByIds([currentIssue.id]);
         if (!refreshed.length) break;
@@ -54,11 +70,12 @@ export class AgentRunner {
       }
       return { reason: "normal", workspace, liveSession };
     } finally {
+      this.controls.delete(issue.id);
       await this.workspaceManager.afterRun(workspace.path);
     }
   }
 
-  runTurn(issue, prompt, attempt, turn, cwd, liveSession) {
+  runTurn(issue, prompt, attempt, turn, cwd, liveSession, control = null) {
     return new Promise((resolve, reject) => {
       const selectedAgent = this.resolveAgent(issue);
       const childEnv = this.buildChildEnv(issue, prompt, attempt, turn, selectedAgent);
@@ -75,6 +92,11 @@ export class AgentRunner {
         stdio: ["ignore", "pipe", "pipe"]
       });
       liveSession.codex_app_server_pid = String(child.pid ?? "");
+      if (control) {
+        control.child = child;
+        // Cancelled between the check above and the spawn: stop it right away.
+        if (control.canceled) child.kill("SIGTERM");
+      }
       const startedAt = Date.now();
       let lastOutputAt = Date.now();
       let settled = false;
@@ -119,6 +141,7 @@ export class AgentRunner {
         settled = true;
         cleanup();
         const runtime_ms = Date.now() - startedAt;
+        if (control?.canceled) return reject(canceledError(control.canceled));
         if (code === 0) {
           this.logger.event("info", "turn_completed", { issue_id: issue.id, identifier: issue.identifier, turn, runtime_ms });
           resolve();
@@ -165,6 +188,12 @@ export class AgentRunner {
       SYMPHONY_PROMPT: prompt
     };
   }
+}
+
+export function canceledError(reason) {
+  const error = new Error(`canceled by reconciliation: ${reason}`);
+  error.code = "canceled_by_reconciliation";
+  return error;
 }
 
 function parseAgentLine(line, stream) {

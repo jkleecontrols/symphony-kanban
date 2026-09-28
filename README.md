@@ -16,6 +16,8 @@ It includes:
 - Three themes (Apple, Pink, Blue), switchable from the board.
 - An Archive drawer inside the Done column, so finished work collapses out of the way.
 - Live running indicators for sessions Symphony dispatched *and* sessions you started yourself.
+- Live session detail: each running session's topic and current activity, read from the CLI's own transcript.
+- Spec section 10/11 reconciliation: a run whose card leaves the active states is actually terminated.
 
 This implementation uses a `local_json` tracker so you can run Symphony without external credentials. New tracker providers can be added behind the adapter interface in `src/tracker.js`.
 
@@ -91,6 +93,18 @@ drawer at the top of the Done column; the Done cards that are not archived yet s
 directly below it. Any card in a terminal state gets a one-click `Archive` button, and
 the drawer stays open or closed across refreshes.
 
+## Reconciliation
+
+Every tick, running issues are checked against the tracker. A card moved to a terminal
+state terminates its agent process and clears its managed workspace; a card that stops
+being dispatchable, leaves the active states, or disappears terminates without cleanup.
+A cancelled run is recorded as `canceled`, not `failed`, so it earns no retry backoff.
+A tracker read failure leaves running work alone and retries on the next tick.
+
+Workspaces left behind by issues that finished while the daemon was down are removed at
+startup. Folders a task points at with `workspace_path` are never cleaned: they are
+yours.
+
 ## Seeing Sessions You Started Yourself
 
 The board shows a green dot and a spinner for any task whose folder has an AI CLI
@@ -104,6 +118,30 @@ when it runs in the task's folder or below it. Results are cached for two second
 
 This is how the board stays honest about what is happening: a folder is busy because
 something is running in it, not because Symphony is the one that ran it.
+
+Each session also carries what it is doing, read from the CLI's own transcript
+(`~/.claude/projects/<folder>/*.jsonl`, `~/.codex/sessions/**/rollout-*.jsonl`): the
+session's topic, its latest message or tool call, and how long ago that was. Only the
+tail of each file is read, and nothing is written back or stored. The board renders this
+on the card, so conversation text appears in the UI -- the server binds `127.0.0.1` only.
+
+### When your session ends
+
+`sessions` in `WORKFLOW.md` moves a task on once the session you were running in its
+folder goes away:
+
+```yaml
+sessions:
+  watch: true
+  from_states: [In Progress]
+  to_state: Human Review
+  settle_polls: 2
+```
+
+A task is moved only if a session was actually seen there first, only from
+`from_states`, and only after `settle_polls` consecutive polls with nothing running, so
+a CLI restart does not trip it. Tasks Symphony itself is running are left to their own
+lifecycle. Set `watch: false` to turn it off.
 
 ## Themes
 

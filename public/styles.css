@@ -637,3 +637,16 @@ pre,
 .archive-cards .card:hover {
   opacity: 1;
 }
+
+/* --- what a live session is doing, read from its own transcript --- */
+.meta.activity {
+  margin-top: 3px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--ok);
+  background: color-mix(in srgb, var(--ok) 6%, transparent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ink);
+  max-height: 64px;
+  overflow: hidden;
+}

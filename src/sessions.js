@@ -1,6 +1,7 @@
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { readActivity } from "./transcripts.js";
 
 const run = promisify(execFile);
 
@@ -8,14 +9,19 @@ const run = promisify(execFile);
 const DEFAULT_NAMES = ["claude", "codex", "aider", "goose"];
 const CACHE_MS = 2000;
 
-let cache = { at: 0, sessions: [] };
+let cache = { at: 0, key: "", sessions: [] };
 
 // Sessions Symphony did not start still belong to a task, because the task is a folder.
 // Finding them means asking the OS which AI processes are running and where.
 export async function scanExternalSessions(names = DEFAULT_NAMES) {
-  if (Date.now() - cache.at < CACHE_MS) return cache.sessions;
+  const key = [...names].sort().join(",");
+  if (cache.key === key && Date.now() - cache.at < CACHE_MS) return cache.sessions;
   const sessions = await scanNow(names).catch(() => []);
-  cache = { at: Date.now(), sessions };
+  // What each session is doing, read from the CLI's own transcript.
+  await Promise.all(sessions.map(async (session) => {
+    Object.assign(session, await readActivity(session) || {});
+  }));
+  cache = { at: Date.now(), key, sessions };
   return sessions;
 }
 

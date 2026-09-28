@@ -2,6 +2,7 @@ import { AgentRunner } from "./agent.js";
 import { createTracker, issueHasRequiredLabels } from "./tracker.js";
 import { WorkspaceManager } from "./workspace.js";
 import { normalizeState, nowIso, sleep } from "./utils.js";
+import { scanExternalSessions, sessionsForPath } from "./sessions.js";
 
 export class Orchestrator {
   constructor(workflow, logger) {
@@ -21,6 +22,10 @@ export class Orchestrator {
     this.lastPollAt = null;
     this.lastReloadAt = nowIso();
     this.dispatchHistory = [];
+    // Folders where a session of the user's own was seen, and how many polls it has been gone.
+    this.externalWatch = new Map();
+    // Injectable so tests can drive the watcher without real processes.
+    this.scanSessions = scanExternalSessions;
   }
 
   start() {
@@ -35,6 +40,7 @@ export class Orchestrator {
   }
 
   async loop() {
+    await this.cleanupTerminalWorkspaces();
     while (this.running) {
       try {
         await this.poll();
@@ -47,7 +53,8 @@ export class Orchestrator {
 
   async poll() {
     this.lastPollAt = nowIso();
-    await this.reconcileTerminalIssues();
+    await this.reconcile();
+    await this.watchExternalSessions();
     const candidates = await this.tracker.fetchCandidateIssues(this.config.tracker.active_states);
     const dispatchable = candidates
       .filter((issue) => issue.dispatchable)
@@ -89,6 +96,11 @@ export class Orchestrator {
         this.logger.event("info", "issue_completed", { issue_id: issue.id, identifier: issue.identifier });
       })
       .catch((error) => {
+        if (error?.code === "canceled_by_reconciliation") {
+          this.dispatchHistory.push({ issue_id: issue.id, identifier: issue.identifier, finished_at: nowIso(), status: "canceled", reason: error.message });
+          this.logger.event("info", "issue_canceled", { issue_id: issue.id, identifier: issue.identifier, reason: error.message });
+          return;
+        }
         const record = this.failures.get(issue.id) || { attempts: 0, retry_after: null, last_error: null };
         record.attempts += 1;
         record.last_error = error.message;
@@ -127,18 +139,151 @@ export class Orchestrator {
     return Math.min(delay, this.config.agent.max_retry_backoff_ms);
   }
 
-  async reconcileTerminalIssues() {
+  // Spec section 10: every tick, check what the tracker now says about running issues and
+  // stop the ones that are no longer ours to run. Marking a claim was not enough -- the
+  // agent process kept going after its card was moved out of the active states.
+  async reconcile() {
     const runningIds = [...this.claims.keys()];
     if (!runningIds.length) return;
-    const issues = await this.tracker.fetchIssuesByIds(runningIds);
+
+    let issues;
+    try {
+      issues = await this.tracker.fetchIssuesByIds(runningIds);
+    } catch (error) {
+      // A read failure is not evidence that the work should stop; try again next tick.
+      this.logger.event("warn", "reconcile_fetch_failed", { error: error.message });
+      return;
+    }
+
+    const terminal = new Set(this.config.tracker.terminal_states);
+    const active = new Set(this.config.tracker.active_states);
+    const seen = new Set();
+
     for (const issue of issues) {
-      if (this.config.tracker.terminal_states.includes(normalizeState(issue.state))) {
-        const claim = this.claims.get(issue.id);
-        if (claim) {
-          claim.status = "terminal";
-          this.logger.event("info", "terminal_state_observed", { issue_id: issue.id, identifier: issue.identifier, state: issue.state });
-        }
+      const claim = this.claims.get(issue.id);
+      if (!claim) continue;
+      seen.add(issue.id);
+      const state = normalizeState(issue.state);
+
+      if (terminal.has(state)) {
+        await this.terminateRun(issue, claim, "terminal_state", true);
+      } else if (!active.has(state)) {
+        await this.terminateRun(issue, claim, "state_no_longer_active", false);
+      } else if (!issue.dispatchable) {
+        await this.terminateRun(issue, claim, "no_longer_dispatchable", false);
+      } else {
+        claim.issue = issue;
+        claim.state = issue.state;
+        claim.heartbeat_at = nowIso();
       }
+    }
+
+    for (const issueId of runningIds) {
+      if (seen.has(issueId)) continue;
+      const claim = this.claims.get(issueId);
+      if (claim) await this.terminateRun(claim.issue, claim, "no_longer_visible", false);
+    }
+  }
+
+  // A task is a folder, so a session the user ran in that folder is that task's work.
+  // When it goes away the task is waiting on a human, not on an agent.
+  async watchExternalSessions() {
+    const settings = this.config.sessions;
+    if (!settings.watch || !settings.to_state || !settings.from_states.length) return;
+
+    let sessions;
+    let issues;
+    try {
+      sessions = await this.scanSessions(settings.names.length ? settings.names : undefined);
+      issues = await this.tracker.readIssues();
+    } catch (error) {
+      this.logger.event("warn", "session_watch_failed", { error: error.message });
+      return;
+    }
+
+    const watched = new Set();
+    for (const issue of issues) {
+      if (!issue.workspace_path) continue;
+      // Symphony's own runs have their own lifecycle; do not move them from underneath it.
+      if (this.claims.has(issue.id)) continue;
+
+      const live = sessionsForPath(sessions, issue.workspace_path).length;
+      const inFromState = settings.from_states.includes(normalizeState(issue.state));
+      const entry = this.externalWatch.get(issue.id) || { seen: false, empty: 0 };
+
+      if (live) {
+        watched.add(issue.id);
+        this.externalWatch.set(issue.id, { seen: true, empty: 0 });
+        continue;
+      }
+      if (!entry.seen || !inFromState) continue;
+
+      entry.empty += 1;
+      watched.add(issue.id);
+      this.externalWatch.set(issue.id, entry);
+      if (entry.empty < settings.settle_polls) continue;
+
+      try {
+        const updated = await this.tracker.updateIssueState(issue.id, settings.to_state);
+        if (updated) {
+          this.logger.event("info", "external_session_ended", {
+            issue_id: issue.id,
+            identifier: issue.identifier,
+            from: issue.state,
+            to: settings.to_state,
+            path: issue.workspace_path
+          });
+        }
+      } catch (error) {
+        this.logger.event("warn", "session_transition_failed", { issue_id: issue.id, error: error.message });
+      }
+      this.externalWatch.delete(issue.id);
+      watched.delete(issue.id);
+    }
+
+    for (const issueId of [...this.externalWatch.keys()]) {
+      if (!watched.has(issueId)) this.externalWatch.delete(issueId);
+    }
+  }
+
+  async terminateRun(issue, claim, reason, cleanWorkspace) {
+    if (claim.status === "canceling") return;
+    claim.status = "canceling";
+    this.logger.event("info", "run_canceled", {
+      issue_id: issue.id,
+      identifier: issue.identifier,
+      state: issue.state,
+      reason
+    });
+    this.runner.cancel(issue.id, reason);
+
+    // Wait for the process to actually go before touching its workspace, but never let a
+    // child that ignores SIGTERM stall the poll loop.
+    await Promise.race([claim.promise?.catch(() => {}) ?? Promise.resolve(), sleep(5000)]);
+
+    if (!cleanWorkspace || issue.workspace_path) return;
+    try {
+      await this.workspaceManager.remove(issue);
+      this.logger.event("info", "workspace_removed", { issue_id: issue.id, identifier: issue.identifier });
+    } catch (error) {
+      this.logger.event("warn", "workspace_cleanup_failed", { issue_id: issue.id, error: error.message });
+    }
+  }
+
+  // Spec section 11: workspaces left behind by issues that finished while the daemon was
+  // down. Folders a task points at are the user's, so they are skipped.
+  async cleanupTerminalWorkspaces() {
+    try {
+      const issues = await this.tracker.fetchTerminalIssues(this.config.tracker.terminal_states);
+      let removed = 0;
+      for (const issue of issues) {
+        if (issue.workspace_path) continue;
+        await this.workspaceManager.remove(issue);
+        removed += 1;
+      }
+      if (removed) this.logger.event("info", "startup_workspaces_cleaned", { count: removed });
+    } catch (error) {
+      this.logger.event("warn", "startup_cleanup_failed", { error: error.message });
     }
   }
 
@@ -173,6 +318,7 @@ export class Orchestrator {
       max_concurrent_agents: this.config.agent.max_concurrent_agents,
       claims: [...this.claims.values()].map(({ promise, ...claim }) => claim),
       failures: Object.fromEntries(this.failures),
+      session_watch: Object.fromEntries(this.externalWatch),
       dispatch_history: this.dispatchHistory.slice(-50)
     };
   }

@@ -15,7 +15,11 @@ export function createServer(orchestrator, logger) {
       if (url.pathname === "/api/state") {
         // Sessions the user started themselves belong to a task too, so the board can
         // show a folder as busy even when Symphony did not dispatch the work.
-        return json(res, { ...orchestrator.snapshot(), external_sessions: await scanExternalSessions() });
+        const names = orchestrator.config.sessions.names;
+        return json(res, {
+          ...orchestrator.snapshot(),
+          external_sessions: await scanExternalSessions(names.length ? names : undefined)
+        });
       }
       if (url.pathname === "/api/logs") return json(res, logger.recent.slice(-200));
 

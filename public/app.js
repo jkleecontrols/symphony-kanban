@@ -294,7 +294,7 @@ function card(issue, claim, failure, external = []) {
         ${blockedBy.length ? ` · blocked by ${escapeHtml(blockedBy.join(", "))}` : ""}
       </p>
       ${claim ? `<p class="meta live"><span class="live-dot"></span>${escapeHtml(claim.codex_live_session?.last_codex_message || "session starting…")}</p>` : ""}
-      ${external.length ? `<p class="meta live"><span class="live-dot"></span>${escapeHtml(describeSessions(external))}</p>` : ""}
+      ${external.map(sessionLine).join("")}
       ${failure ? `<p class="meta error">retry ${escapeHtml(failure.retry_after || "now")}: ${escapeHtml(failure.last_error || "")}</p>` : ""}
       <div class="card-actions">
         <select data-inline="state" data-issue-id="${escapeAttr(issue.id)}" title="State">
@@ -366,10 +366,23 @@ function sessionsFor(issue) {
   });
 }
 
-function describeSessions(sessions) {
-  const names = [...new Set(sessions.map((session) => session.name))].join(" · ");
-  const count = sessions.length;
-  return `${names} running in this folder (${count} session${count > 1 ? "s" : ""})`;
+function sessionLine(session) {
+  const age = relativeTime(session.at);
+  const head = `${session.name}${session.title ? ` — ${session.title}` : ""}${age ? ` · ${age}` : ""}`;
+  return `
+    <p class="meta live"><span class="live-dot"></span>${escapeHtml(head)}</p>
+    ${session.activity ? `<p class="meta activity">${escapeHtml(session.activity)}</p>` : ""}
+  `;
+}
+
+function relativeTime(iso) {
+  if (!iso) return "";
+  const seconds = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (!Number.isFinite(seconds) || seconds < 0) return "";
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h ago`;
+  return `${Math.round(seconds / 86400)}d ago`;
 }
 
 function isArchivable(issue) {
