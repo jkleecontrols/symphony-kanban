@@ -7,6 +7,9 @@ const CODEX_WINDOW_MS = 48 * 60 * 60 * 1000;
 const MAX_TEXT = 160;
 // A turn that ended moments ago is still "working" as far as an operator is concerned.
 const WORKING_GRACE_MS = 45 * 1000;
+const HISTORY_CACHE_MS = 15 * 1000;
+
+const historyCache = new Map();
 
 // What a running session is actually doing. Both CLIs keep an append-only JSONL
 // transcript; reading its tail is how the board reports live work it did not start.
@@ -224,4 +227,21 @@ async function tailRecords(filePath, bytes = TAIL_BYTES, from = "tail") {
   } finally {
     await handle.close();
   }
+}
+
+// Whether a folder has ever been worked in, and when. Unlike a live process this
+// survives a restart, so a card whose session ended while Symphony was down is still
+// recognised as finished rather than frozen wherever it was left.
+export async function lastActivity(cwd, names = ["claude", "codex"]) {
+  const key = `${cwd}\u0000${names.join(",")}`;
+  const hit = historyCache.get(key);
+  if (hit && Date.now() - hit.at < HISTORY_CACHE_MS) return hit.value;
+
+  let best = null;
+  for (const name of names) {
+    const activity = await readActivity({ name, cwd });
+    if (activity?.at && (!best || activity.at > best.at)) best = { ...activity, name };
+  }
+  historyCache.set(key, { at: Date.now(), value: best });
+  return best;
 }

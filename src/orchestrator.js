@@ -4,6 +4,7 @@ import { WorkspaceManager } from "./workspace.js";
 import { normalizeState, nowIso, sleep } from "./utils.js";
 import { scanExternalSessions, sessionsForPath } from "./sessions.js";
 import { changesSince, inspect } from "./gitguard.js";
+import { lastActivity } from "./transcripts.js";
 
 // The busiest session in a folder decides the card: one turn running anywhere in it
 // means the task is in progress.
@@ -49,6 +50,7 @@ export class Orchestrator {
     this.codexTotals = { input_tokens: 0, output_tokens: 0, total_tokens: 0, runtime_seconds: 0, turns: 0, runs: 0 };
     // Injectable so tests can drive the watcher without real processes.
     this.scanSessions = scanExternalSessions;
+    this.lookupHistory = lastActivity;
     // Issues already refused by the dispatch guard, so the reason is logged once.
     this.guardRefused = new Map();
     this.lastChanges = new Map();
@@ -333,7 +335,10 @@ export class Orchestrator {
         continue;
       }
 
-      if (!entry.seen) continue;
+      // A transcript on disk proves work happened here even if this process never saw
+      // the session, which is what a restart costs when the memory is in RAM only.
+      const worked = entry.seen || Boolean(await this.lookupHistory(issue.workspace_path, settings.names.length ? settings.names : undefined));
+      if (!worked) continue;
       entry.empty += 1;
       stillWatched.add(issue.id);
       this.externalWatch.set(issue.id, entry);

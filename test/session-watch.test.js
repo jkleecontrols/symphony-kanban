@@ -131,3 +131,26 @@ test("Done moves to Archive once it has sat untouched for the configured days", 
   await orchestrator.sweepArchive();
   assert.equal(await stateOf(orchestrator), "Archive");
 });
+
+test("after a restart, a folder with a transcript still reaches Done", async () => {
+  const { orchestrator } = await harness("Human Review");
+  orchestrator.scanSessions = async () => [];
+  orchestrator.externalWatch.clear();
+  orchestrator.lookupHistory = async () => ({ at: new Date(Date.now() - 3600000).toISOString(), phase: "idle" });
+
+  await orchestrator.watchExternalSessions();
+  assert.equal(await stateOf(orchestrator), "Human Review", "one poll is not a settled absence");
+
+  await orchestrator.watchExternalSessions();
+  assert.equal(await stateOf(orchestrator), "Done", "a folder that was worked in and is now quiet is finished");
+});
+
+test("a folder nobody ever worked in is left alone", async () => {
+  const { orchestrator } = await harness("Human Review");
+  orchestrator.scanSessions = async () => [];
+  orchestrator.externalWatch.clear();
+  orchestrator.lookupHistory = async () => null;
+
+  for (let i = 0; i < 4; i += 1) await orchestrator.watchExternalSessions();
+  assert.equal(await stateOf(orchestrator), "Human Review");
+});
