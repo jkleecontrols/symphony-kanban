@@ -5,6 +5,8 @@ import path from "node:path";
 const TAIL_BYTES = 96 * 1024;
 const CODEX_WINDOW_MS = 48 * 60 * 60 * 1000;
 const MAX_TEXT = 160;
+// A turn that ended moments ago is still "working" as far as an operator is concerned.
+const WORKING_GRACE_MS = 45 * 1000;
 
 // What a running session is actually doing. Both CLIs keep an append-only JSONL
 // transcript; reading its tail is how the board reports live work it did not start.
@@ -28,20 +30,29 @@ async function claudeActivity(cwd, root) {
   let title = null;
   let activity = null;
   let at = null;
+  let stopReason = null;
+  let lastText = "";
 
   for (const record of records) {
     if (record.type === "ai-title" && record.aiTitle) title = String(record.aiTitle);
     if (record.timestamp) at = record.timestamp;
     if (record.type !== "assistant") continue;
+    if (record.message?.stop_reason) stopReason = record.message.stop_reason;
     const content = record.message?.content;
     if (!Array.isArray(content)) continue;
     for (const part of content) {
-      if (part?.type === "text" && part.text?.trim()) activity = clip(part.text.trim());
-      else if (part?.type === "tool_use" && part.name) activity = `using ${part.name}`;
+      if (part?.type === "text" && part.text?.trim()) {
+        activity = clip(part.text.trim());
+        lastText = part.text.trim();
+      } else if (part?.type === "tool_use" && part.name) {
+        activity = `using ${part.name}`;
+        lastText = "";
+      }
     }
   }
 
-  return { title, activity, at: at || file.mtime, transcript: file.path };
+  const when = at || file.mtime;
+  return { title, activity, at: when, phase: phaseOf(stopReason, lastText, when), transcript: file.path };
 }
 
 // Claude Code names a project folder after its path with every character outside
@@ -91,20 +102,45 @@ async function codexActivity(cwd) {
     const tail = await tailRecords(file.path);
     let activity = null;
     let at = null;
+    let phase = "idle";
     for (const record of tail) {
       if (record.timestamp) at = record.timestamp;
       const payload = record.payload;
       if (!payload || typeof payload !== "object") continue;
-      if (payload.type === "task_started") activity = "working on a turn";
-      else if (payload.type === "task_complete") activity = "turn finished";
+      if (payload.type === "task_started") { activity = "working on a turn"; phase = "working"; }
+      else if (payload.type === "task_complete") { activity = "turn finished"; phase = "idle"; }
       else if (payload.type === "message" && payload.role === "assistant") {
         const text = textOf(payload.content);
         if (text) activity = clip(text);
       }
     }
-    return { title: null, activity, at: at || file.mtime, transcript: file.path };
+    const when = at || file.mtime;
+    if (phase === "idle" && Date.now() - Date.parse(when) < WORKING_GRACE_MS) phase = "working";
+    return { title: null, activity, at: when, phase, transcript: file.path };
   }
   return null;
+}
+
+// Claude records why the assistant stopped: mid-turn tool calls mean it is working,
+// end_turn means it handed control back and is waiting on the person.
+export function phaseOf(stopReason, lastText, at) {
+  const quietFor = Date.now() - Date.parse(at || "");
+  if (stopReason === "tool_use") return "working";
+  if (stopReason !== "end_turn") {
+    return Number.isFinite(quietFor) && quietFor < WORKING_GRACE_MS ? "working" : "idle";
+  }
+  if (Number.isFinite(quietFor) && quietFor < WORKING_GRACE_MS) return "working";
+  return looksLikeAQuestion(lastText) ? "waiting" : "idle";
+}
+
+// The one judgement call here: a finished turn that asks something is waiting on an
+// answer, while one that simply reports is idle. Text is all there is to go on.
+export function looksLikeAQuestion(text) {
+  const tail = String(text || "").replace(/\s+/g, " ").trim().slice(-320);
+  if (!tail) return false;
+  if (/[?？]\s*$/.test(tail)) return true;
+  if (/[?？]/.test(tail.slice(-160))) return true;
+  return /(까요|link|을까|ㄹ까|나요|가요|주세요|해 ?주시|알려ㅤ?주|골라|선택해|어느 ?쪽|괜찮을까|진행할까|맞나요)\s*[.!]?\s*$/.test(tail);
 }
 
 function textOf(content) {

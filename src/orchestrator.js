@@ -3,6 +3,16 @@ import { createTracker, issueHasRequiredLabels } from "./tracker.js";
 import { WorkspaceManager } from "./workspace.js";
 import { normalizeState, nowIso, sleep } from "./utils.js";
 import { scanExternalSessions, sessionsForPath } from "./sessions.js";
+import { changesSince, inspect } from "./gitguard.js";
+
+// The busiest session in a folder decides the card: one turn running anywhere in it
+// means the task is in progress.
+function phaseOf(sessions) {
+  const phases = sessions.map((session) => session.phase).filter(Boolean);
+  if (phases.includes("working")) return "working";
+  if (phases.includes("waiting")) return "waiting";
+  return "idle";
+}
 
 // Spec section 3 run-attempt terminal statuses.
 function terminalStatusFor(error) {
@@ -39,6 +49,9 @@ export class Orchestrator {
     this.codexTotals = { input_tokens: 0, output_tokens: 0, total_tokens: 0, runtime_seconds: 0, turns: 0, runs: 0 };
     // Injectable so tests can drive the watcher without real processes.
     this.scanSessions = scanExternalSessions;
+    // Issues already refused by the dispatch guard, so the reason is logged once.
+    this.guardRefused = new Map();
+    this.lastChanges = new Map();
   }
 
   start() {
@@ -68,6 +81,7 @@ export class Orchestrator {
     this.lastPollAt = nowIso();
     await this.reconcile();
     await this.watchExternalSessions();
+    await this.sweepArchive();
     const candidates = await this.tracker.fetchCandidateIssues(this.config.tracker.active_states);
     const dispatchable = candidates
       .filter((issue) => issue.dispatchable)
@@ -78,7 +92,60 @@ export class Orchestrator {
 
     for (const issue of dispatchable) {
       if (!this.canDispatch(issue)) continue;
-      this.dispatch(issue);
+      const baseline = await this.guardBaseline(issue);
+      if (!baseline) continue;
+      this.dispatch(issue, baseline);
+    }
+  }
+
+  // Auto-dispatch writes with nobody watching, so the folder must be recoverable first.
+  async guardBaseline(issue) {
+    if (!this.config.dispatch_guard.require_git) return { git: false, skipped: true };
+    const state = await inspect(issue.workspace_path);
+    if (state.git) {
+      this.guardRefused.delete(issue.id);
+      return state;
+    }
+    if (this.guardRefused.get(issue.id) !== state.reason) {
+      this.guardRefused.set(issue.id, state.reason);
+      this.logger.event("warn", "dispatch_refused", {
+        issue_id: issue.id,
+        identifier: issue.identifier,
+        reason: state.reason
+      });
+    }
+    return null;
+  }
+
+  async sweepArchive() {
+    const settings = this.config.archive;
+    if (!settings.enabled || !settings.from_state || !settings.to_state) return;
+    if (!Number.isFinite(settings.after_days) || settings.after_days < 0) return;
+
+    const cutoff = Date.now() - settings.after_days * 86400000;
+    let issues;
+    try {
+      issues = await this.tracker.readIssues();
+    } catch (error) {
+      this.logger.event("warn", "archive_sweep_failed", { error: error.message });
+      return;
+    }
+
+    for (const issue of issues) {
+      if (normalizeState(issue.state) !== normalizeState(settings.from_state)) continue;
+      const touched = Date.parse(issue.updated_at);
+      if (!Number.isFinite(touched) || touched > cutoff) continue;
+      try {
+        await this.tracker.updateIssueState(issue.id, settings.to_state);
+        this.logger.event("info", "auto_archived", {
+          issue_id: issue.id,
+          identifier: issue.identifier,
+          idle_days: Math.floor((Date.now() - touched) / 86400000),
+          to: settings.to_state
+        });
+      } catch (error) {
+        this.logger.event("warn", "archive_failed", { issue_id: issue.id, error: error.message });
+      }
     }
   }
 
@@ -87,7 +154,7 @@ export class Orchestrator {
     await Promise.allSettled([...this.claims.values()].map((claim) => claim.promise));
   }
 
-  dispatch(issue) {
+  dispatch(issue, baseline = null) {
     const attempt = (this.failures.get(issue.id)?.attempts || 0) + 1;
     const claim = {
       issue,
@@ -103,8 +170,9 @@ export class Orchestrator {
       promise: null
     };
     claim.promise = this.runner.run(issue, attempt)
-      .then((result) => {
+      .then(async (result) => {
         claim.status = "Succeeded";
+        await this.recordChanges(issue, baseline);
         this.recordUsage(result.liveSession, claim);
         this.dispatchHistory.push({ issue_id: issue.id, identifier: issue.identifier, finished_at: nowIso(), status: "Succeeded", reason: result.reason });
         this.failures.delete(issue.id);
@@ -154,6 +222,19 @@ export class Orchestrator {
   retryBackoff(attempts) {
     const delay = 10000 * 2 ** Math.min(attempts - 1, 8);
     return Math.min(delay, this.config.agent.max_retry_backoff_ms);
+  }
+
+  // What the run changed inside the folder, so the blast radius is visible afterwards.
+  async recordChanges(issue, baseline) {
+    if (!baseline?.git) return;
+    try {
+      const changes = await changesSince(issue.workspace_path, baseline);
+      if (!changes) return;
+      this.lastChanges.set(issue.id, changes);
+      this.logger.event("info", "workspace_changes", { issue_id: issue.id, identifier: issue.identifier, ...changes });
+    } catch (error) {
+      this.logger.event("warn", "workspace_diff_failed", { issue_id: issue.id, error: error.message });
+    }
   }
 
   recordUsage(liveSession, claim) {
@@ -213,11 +294,16 @@ export class Orchestrator {
     }
   }
 
-  // A task is a folder, so a session the user ran in that folder is that task's work.
-  // When it goes away the task is waiting on a human, not on an agent.
+  // A task is a folder, so the session running in that folder IS the task's state. The
+  // board follows it: working while a turn is running, waiting when the session handed
+  // control back with a question, idle when it is open but has nothing pending, and
+  // ended once the process is gone.
   async watchExternalSessions() {
     const settings = this.config.sessions;
-    if (!settings.watch || !settings.to_state || !settings.from_states.length) return;
+    if (!settings.watch) return;
+    const managed = Object.values(settings.states).filter(Boolean);
+    if (!managed.length) return;
+    const managedKeys = new Set(managed.map(normalizeState));
 
     let sessions;
     let issues;
@@ -229,48 +315,59 @@ export class Orchestrator {
       return;
     }
 
-    const watched = new Set();
+    const stillWatched = new Set();
     for (const issue of issues) {
       if (!issue.workspace_path) continue;
-      // Symphony's own runs have their own lifecycle; do not move them from underneath it.
+      // Symphony's own runs have their own lifecycle; do not move them underneath it.
       if (this.claims.has(issue.id)) continue;
+      // Only states the watcher owns. A card parked in Archive or Canceled stays put.
+      if (!managedKeys.has(normalizeState(issue.state))) continue;
 
-      const live = sessionsForPath(sessions, issue.workspace_path).length;
-      const inFromState = settings.from_states.includes(normalizeState(issue.state));
+      const live = sessionsForPath(sessions, issue.workspace_path);
       const entry = this.externalWatch.get(issue.id) || { seen: false, empty: 0 };
 
-      if (live) {
-        watched.add(issue.id);
+      if (live.length) {
+        stillWatched.add(issue.id);
         this.externalWatch.set(issue.id, { seen: true, empty: 0 });
+        await this.applySessionState(issue, settings.states[phaseOf(live)], "session_phase");
         continue;
       }
-      if (!entry.seen || !inFromState) continue;
 
+      if (!entry.seen) continue;
       entry.empty += 1;
-      watched.add(issue.id);
+      stillWatched.add(issue.id);
       this.externalWatch.set(issue.id, entry);
+      // One missing poll can be a CLI restart; only a settled absence means it ended.
       if (entry.empty < settings.settle_polls) continue;
 
-      try {
-        const updated = await this.tracker.updateIssueState(issue.id, settings.to_state);
-        if (updated) {
-          this.logger.event("info", "external_session_ended", {
-            issue_id: issue.id,
-            identifier: issue.identifier,
-            from: issue.state,
-            to: settings.to_state,
-            path: issue.workspace_path
-          });
-        }
-      } catch (error) {
-        this.logger.event("warn", "session_transition_failed", { issue_id: issue.id, error: error.message });
+      if (await this.applySessionState(issue, settings.states.ended, "session_ended")) {
+        this.externalWatch.delete(issue.id);
+        stillWatched.delete(issue.id);
       }
-      this.externalWatch.delete(issue.id);
-      watched.delete(issue.id);
     }
 
     for (const issueId of [...this.externalWatch.keys()]) {
-      if (!watched.has(issueId)) this.externalWatch.delete(issueId);
+      if (!stillWatched.has(issueId)) this.externalWatch.delete(issueId);
+    }
+  }
+
+  async applySessionState(issue, target, reason) {
+    if (!target || normalizeState(issue.state) === normalizeState(target)) return true;
+    try {
+      const updated = await this.tracker.updateIssueState(issue.id, target);
+      if (updated) {
+        this.logger.event("info", "session_state_synced", {
+          issue_id: issue.id,
+          identifier: issue.identifier,
+          from: issue.state,
+          to: target,
+          reason
+        });
+      }
+      return true;
+    } catch (error) {
+      this.logger.event("warn", "session_state_sync_failed", { issue_id: issue.id, error: error.message });
+      return false;
     }
   }
 
@@ -348,6 +445,8 @@ export class Orchestrator {
       failures: Object.fromEntries(this.failures),
       session_watch: Object.fromEntries(this.externalWatch),
       codex_totals: { ...this.codexTotals },
+      guard_refused: Object.fromEntries(this.guardRefused),
+      last_changes: Object.fromEntries(this.lastChanges),
       dispatch_history: this.dispatchHistory.slice(-50)
     };
   }

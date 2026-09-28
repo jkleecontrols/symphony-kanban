@@ -52,6 +52,8 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
   const agent = raw.agent || {};
   const codex = raw.codex || {};
   const sessions = raw.sessions || {};
+  const archive = raw.archive || {};
+  const guard = raw.dispatch_guard || {};
 
   const provider = Object.fromEntries(Object.entries(tracker.provider || {}).map(([key, value]) => {
     if (key === "path" || key.endsWith("_path")) return [key, expandPathValue(resolveEnvRef(value, env), workflowDir, env)];
@@ -64,12 +66,25 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
 
   const resolved = {
     agents,
+    archive: {
+      enabled: archive.enabled !== false,
+      from_state: stringOrNull(archive.from_state),
+      to_state: stringOrNull(archive.to_state),
+      after_days: Number(archive.after_days ?? 2)
+    },
+    dispatch_guard: {
+      require_git: guard.require_git !== false
+    },
     sessions: {
       watch: sessions.watch !== false,
       names: arrayOfStrings(sessions.names).map((name) => name.trim()).filter(Boolean),
-      from_states: arrayOfStrings(sessions.from_states).map(normalizeState).filter(Boolean),
-      to_state: stringOrNull(sessions.to_state),
-      settle_polls: positiveInteger(sessions.settle_polls, 2)
+      settle_polls: positiveInteger(sessions.settle_polls, 2),
+      states: {
+        working: stringOrNull(sessions.states?.working),
+        idle: stringOrNull(sessions.states?.idle),
+        waiting: stringOrNull(sessions.states?.waiting),
+        ended: stringOrNull(sessions.states?.ended)
+      }
     },
     tracker: {
       kind: tracker.kind || "",

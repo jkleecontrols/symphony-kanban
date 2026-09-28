@@ -26,18 +26,30 @@ hooks:
   # before_run and after_run run in the task's folder, whichever folder that is. Leave
   # them unset unless you want files written into the folders your tasks point at.
 sessions:
-  # A session you start yourself in a task's folder counts as that task's work. When it
-  # goes away, the task moves on. Set watch to false to turn this off.
+  # A task is a folder, so the session running in that folder is the task's state.
+  # The board follows the session rather than being kept in step by hand.
   watch: true
   names:
     - claude
     - codex
     - aider
     - goose
-  from_states:
-    - In Progress
-  to_state: Human Review
   settle_polls: 2
+  states:
+    working: In Progress
+    idle: Ready
+    waiting: Human Review
+    ended: Done
+archive:
+  # Finished work leaves the Done column on its own after this many days untouched.
+  enabled: true
+  from_state: Done
+  to_state: Archive
+  after_days: 2
+dispatch_guard:
+  # Auto-dispatch writes with nobody watching. Refuse it unless the folder is a git
+  # repository with at least one commit, so whatever happens can be seen and undone.
+  require_git: true
 agents:
   mock:
     label: Mock demo agent
@@ -81,9 +93,11 @@ agent:
     In Progress: 1
 codex:
   command: node "$SYMPHONY_HOME/scripts/mock-agent.js"
-  turn_timeout_ms: 30000
+  # A real CLI thinks for minutes and prints its answer at the end, so the mock's
+  # 30s/15s demo values would kill every run before it said anything.
+  turn_timeout_ms: 900000
   read_timeout_ms: 5000
-  stall_timeout_ms: 15000
+  stall_timeout_ms: 600000
 ---
 You are working on {{ issue.identifier }}: {{ issue.title }}.
 

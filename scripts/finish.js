@@ -18,8 +18,10 @@ if (!trackerPath || !issueId) {
 }
 
 try {
-  const updated = await new LocalJsonTracker(trackerPath).updateIssueState(issueId, state);
-  if (updated) emit("tracker_updated", `moved ${updated.identifier} to ${state}`);
+  // Clearing dispatchable is what actually stops the loop: the review states are still
+  // active states, so a task left dispatchable would be picked up again on the next poll.
+  const updated = await new LocalJsonTracker(trackerPath).updateIssue(issueId, { state, dispatchable: false });
+  if (updated) emit("tracker_updated", `moved ${updated.identifier} to ${state} and cleared auto-dispatch`);
   else emit("finish_skipped", `issue ${issueId} is no longer in the tracker`);
 } catch (error) {
   emit("finish_failed", error.message);

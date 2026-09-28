@@ -41,6 +41,8 @@ async function harness(issueOverrides = {}) {
     polling: { interval_ms: 1000 },
     workspace: { root: path.join(dir, "workspaces") },
     agent: { max_turns: 1 },
+    // These cover reconciliation, not the dispatch guard; temp folders are not repos.
+    dispatch_guard: { require_git: false },
     agents: { sleeper: { command: "sleep 120" } },
     codex: { stall_timeout_ms: 0, turn_timeout_ms: 600000 }
   }, dir);

@@ -1,3 +1,69 @@
+### The board follows your session
+
+A task is a folder, so the session running in that folder is the task's state. The board
+follows it rather than being kept in step by hand:
+
+| What the session is doing | Column |
+| --- | --- |
+| A turn is running (`stop_reason: tool_use`) | In Progress |
+| The turn ended with a question for you | Human Review |
+| Open but with nothing pending | Ready |
+| Process gone | Done |
+
+```yaml
+sessions:
+  watch: true
+  settle_polls: 2
+  states:
+    working: In Progress
+    idle: Ready
+    waiting: Human Review
+    ended: Done
+```
+
+Claude records why each turn stopped, which is what separates working from handed-back.
+Separating *waiting on an answer* from *idle* is the one judgement call: it reads the
+last thing the assistant said and asks whether it ends in a question. That heuristic is
+in `looksLikeAQuestion` and is the part most worth tuning.
+
+A card is only moved out of the four states above, so anything parked in Archive or
+Canceled stays put, and a task Symphony is running itself is left to its own lifecycle.
+Reaching Done needs a session to have actually been seen in that folder first and then
+be gone for `settle_polls` polls, so a restart does not sweep untouched cards into Done.
+Set `watch: false` to turn all of it off.
+
+### Archive on a timer
+
+```yaml
+archive:
+  enabled: true
+  from_state: Done
+  to_state: Archive
+  after_days: 2
+```
+
+A card that has sat in `from_state` untouched for `after_days` moves to `to_state` on the
+next poll, so finished work leaves the Done column without anyone tidying it.
+
+### The dispatch guard
+
+Auto-dispatch lets an agent write with nobody watching, and a task's folder is a folder
+you already work in. Before dispatching, the folder must be a git repository with at
+least one commit; otherwise the run is refused and the reason is logged once:
+
+```yaml
+dispatch_guard:
+  require_git: true
+```
+
+After a run finishes, what it changed inside the folder — commits, files, insertions,
+deletions, whether the tree is dirty — is recorded on the state snapshot and in the log.
+
+This is a safety net, not a fence. Nothing here stops an agent from writing outside the
+task's folder; a real test run edited files two directories away. Confining it to one
+folder needs the CLI's own permission configuration, which differs per CLI. What the
+guard buys you is that whatever happens inside the folder can be seen and undone.
+
 # Symphony Local
 
 Local implementation of the OpenAI Symphony service specification.
@@ -16,6 +82,8 @@ It includes:
 - Three themes (Apple, Pink, Blue), switchable from the board.
 - An Archive drawer inside the Done column, so finished work collapses out of the way.
 - Live running indicators for sessions Symphony dispatched *and* sessions you started yourself.
+- The board follows your sessions: a card's column is decided by what its session is doing.
+- Done ages into Archive on its own, and auto-dispatch is refused for folders with no undo.
 - Live session detail: each running session's topic and current activity, read from the CLI's own transcript.
 - Spec section 10/11 reconciliation: a run whose card leaves the active states is actually terminated.
 
