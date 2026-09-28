@@ -49,7 +49,8 @@ agents:
     description: Continues the folder's most recent Claude conversation, like claude --continue.
     command: |
       set -e
-      proj="$HOME/.claude/projects/$(printf '%s' "$PWD" | sed 's|/|-|g')"
+      # Claude Code replaces every character outside [A-Za-z0-9-] with a dash, not just slashes.
+      proj="$HOME/.claude/projects/$(printf '%s' "$PWD" | sed 's|[^A-Za-z0-9-]|-|g')"
       if [ -d "$proj" ]; then
         claude --continue --print "$SYMPHONY_PROMPT"
       else

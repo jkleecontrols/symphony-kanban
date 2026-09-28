@@ -8,9 +8,9 @@ const MAX_TEXT = 160;
 
 // What a running session is actually doing. Both CLIs keep an append-only JSONL
 // transcript; reading its tail is how the board reports live work it did not start.
-export async function readActivity(session) {
+export async function readActivity(session, roots = {}) {
   try {
-    if (session.name === "claude") return await claudeActivity(session.cwd);
+    if (session.name === "claude") return await claudeActivity(session.cwd, roots.claude);
     if (session.name === "codex") return await codexActivity(session.cwd);
   } catch {
     // A transcript that cannot be read just means no detail for this card.
@@ -18,8 +18,9 @@ export async function readActivity(session) {
   return null;
 }
 
-async function claudeActivity(cwd) {
-  const dir = path.join(os.homedir(), ".claude", "projects", cwd.replace(/\//g, "-"));
+async function claudeActivity(cwd, root) {
+  const dir = await claudeProjectDir(cwd, root);
+  if (!dir) return null;
   const file = await newestFile(dir, (name) => name.endsWith(".jsonl"));
   if (!file) return null;
 
@@ -41,6 +42,40 @@ async function claudeActivity(cwd) {
   }
 
   return { title, activity, at: at || file.mtime, transcript: file.path };
+}
+
+// Claude Code names a project folder after its path with every character outside
+// [A-Za-z0-9-] replaced by a dash -- dots and underscores included, which a slash-only
+// rule silently misses. When that guess does not exist, fall back to asking the
+// transcripts themselves which folder they belong to, so a change to the naming rule
+// degrades into a slower lookup rather than an empty card.
+export async function claudeProjectDir(cwd, rootOverride) {
+  const root = rootOverride || path.join(os.homedir(), ".claude", "projects");
+  const guess = path.join(root, cwd.replace(/[^A-Za-z0-9-]/g, "-"));
+  if (await isDirectory(guess)) return guess;
+
+  let names;
+  try {
+    names = await fs.readdir(root);
+  } catch {
+    return null;
+  }
+  for (const name of names) {
+    const candidate = path.join(root, name);
+    const file = await newestFile(candidate, (entry) => entry.endsWith(".jsonl"));
+    if (!file) continue;
+    const [first] = await tailRecords(file.path, 8 * 1024, "head");
+    if (first?.cwd === cwd) return candidate;
+  }
+  return null;
+}
+
+async function isDirectory(target) {
+  try {
+    return (await fs.stat(target)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 async function codexActivity(cwd) {
