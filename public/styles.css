@@ -328,6 +328,7 @@ label.check input {
 
 .column {
   min-height: 300px;
+  min-width: 0;
   background: var(--raised);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -355,11 +356,14 @@ label.check input {
 
 .cards {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 12px;
 }
 
 .card {
+  min-width: 0;
+  overflow-wrap: anywhere;
   background: var(--surface);
   border: 1px solid var(--line);
   border-left: 3px solid var(--accent);
@@ -393,6 +397,7 @@ label.check input {
 
 .description {
   margin-top: 7px;
+  overflow-wrap: anywhere;
 }
 
 .folder {
@@ -447,8 +452,11 @@ label.check input {
   flex-wrap: wrap;
 }
 
+/* Two selects sharing a row inside a narrow column clip their own labels. */
 .card-actions select {
-  flex: 1 1 120px;
+  flex: 1 1 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .card-actions button {
@@ -640,6 +648,7 @@ pre,
 
 /* --- what a live session is doing, read from its own transcript --- */
 .meta.activity {
+  overflow-wrap: anywhere;
   margin-top: 3px;
   padding: 6px 8px;
   border-left: 2px solid var(--ok);
@@ -691,6 +700,7 @@ pre,
 .evidence-body { padding: 0 9px 9px; }
 
 .evidence-output {
+  overflow-wrap: anywhere;
   margin-top: 6px;
   max-height: 180px;
   overflow: auto;
@@ -712,6 +722,7 @@ pre,
 }
 
 .question-text {
+  overflow-wrap: anywhere;
   font-size: 12px;
   line-height: 1.5;
   max-height: 150px;
