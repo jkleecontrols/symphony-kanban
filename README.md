@@ -10,6 +10,8 @@ It is an independent implementation of the [OpenAI Symphony](https://github.com/
 service specification (`SPEC.md` in that repository), not a port of its Elixir reference.
 Where it departs from the spec, and why, is at the end of this file.
 
+![The board: five columns, a card per project folder, with live session indicators and the result of each finished run](docs/board.jpg)
+
 ## What it does
 
 **Runs work.** Polls a tracker, dispatches an agent per task with bounded concurrency,
@@ -108,6 +110,8 @@ code, duration and the tail of its output underneath. A failing check is recorde
 failed with its output kept, since that is the output most worth reading. A task with no
 check command still records its diff and says plainly that no check was configured rather
 than implying success.
+
+![Two cards side by side: one with a green PASS badge reading "1 commit, 4 files, +128/-17 · checks passed", one with a red FAIL badge showing the failing test output](docs/proof-of-work.png)
 
 A task carries its own `verify_command`; `verify.command` is the fallback. Evidence lives
 on the issue as `last_run`, so it survives a restart, and
@@ -243,6 +247,8 @@ check command, project folder and auto-dispatch. Each card has `Edit` for inline
 a two-step `Delete`, and `Archive` when it is in a terminal state. Required labels from
 `tracker.required_labels` are added automatically. While a card is open for editing, the
 board pauses its three-second refresh so in-progress input is never overwritten.
+
+![Adding a task: the form takes a title, state, assigned AI, check command and project folder, and the card appears in Ready](docs/add-task.gif)
 
 Archived cards collapse into a drawer at the top of the Done column, with unarchived Done
 cards below it. A card that has sat in Done untouched for `archive.after_days` moves there
