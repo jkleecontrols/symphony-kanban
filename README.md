@@ -389,3 +389,7 @@ stay under `workspace.root`, and hook timeouts are enforced. They do **not** hol
 task with a `workspace_path` — that is the point of the field, and the dispatch guard
 exists because of it. Keep those folders under version control, and configure your CLI's
 own approval and sandbox settings before letting anything run unattended.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
