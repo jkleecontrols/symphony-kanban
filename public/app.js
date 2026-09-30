@@ -430,6 +430,24 @@ function sessionsFor(issue) {
 // A session that ended its turn with a question is waiting on a person. Show what it
 // asked, and offer to answer only when nothing is still open in that folder -- resuming
 // a conversation beside a live terminal makes two processes fight over it.
+// Buttons for the commands registered on this task, plus a way into its folder. The
+// board sends a label, never a command, so nothing typed in a browser gets run.
+function runBlock(issue) {
+  if (!issue.workspace_path) return "";
+  const labels = Object.keys({ ...(config.shared_commands || {}), ...(issue.commands || {}) });
+  if (!labels.length && !config.terminal_enabled) return "";
+  const last = issue.last_command;
+
+  return `
+    <div class="card-actions runs">
+      ${config.terminal_enabled ? `<button type="button" data-action="terminal" data-issue-id="${escapeAttr(issue.id)}" title="Open or raise the terminal for this folder">Terminal</button>` : ""}
+      ${labels.map((label) => `<button type="button" data-action="run" data-issue-id="${escapeAttr(issue.id)}" data-label="${escapeAttr(label)}">${escapeHtml(label)}</button>`).join("")}
+    </div>
+    ${last ? `<p class="meta ${last.ok ? "live" : "error"}">${escapeHtml(last.label)} → exit ${escapeHtml(String(last.exit_code))}${last.timed_out ? " (timed out)" : ""} · ${escapeHtml(relativeTime(last.at))}</p>` : ""}
+    ${last?.output_tail ? `<pre class="evidence-output">${escapeHtml(last.output_tail.slice(-900))}</pre>` : ""}
+  `;
+}
+
 function questionBlock(issue, external) {
   const asking = external.find((session) => session.phase === "waiting" && session.question);
   const question = asking?.question || (external.length ? null : issue.last_reply ? null : null);
