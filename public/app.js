@@ -176,6 +176,29 @@ async function onBoardClick(event) {
     return refresh();
   }
 
+  if (action === "terminal") {
+    try {
+      const result = await send(`/api/issues/${encodeURIComponent(issueId)}/terminal`, "POST", {});
+      clearBanner();
+      if (result?.action === "raised") showBanner(`Raised the ${result.app} window already running there.`);
+    } catch (error) {
+      return showBanner(`Could not open a terminal: ${error.message}`);
+    }
+    return;
+  }
+
+  if (action === "run") {
+    trigger.disabled = true;
+    trigger.textContent = `${trigger.dataset.label}…`;
+    try {
+      await send(`/api/issues/${encodeURIComponent(issueId)}/run`, "POST", { label: trigger.dataset.label });
+    } catch (error) {
+      return showBanner(`Could not run ${trigger.dataset.label}: ${error.message}`);
+    }
+    clearBanner();
+    return refresh();
+  }
+
   if (action === "retry") {
     try {
       await send(`/api/retry/${encodeURIComponent(issueId)}`, "POST");
@@ -329,6 +352,7 @@ function card(issue, claim, failure, external = []) {
       </p>
       ${claim ? `<p class="meta live"><span class="live-dot"></span>${escapeHtml(claim.codex_live_session?.last_codex_message || "session starting…")}</p>` : ""}
       ${external.map(sessionLine).join("")}
+      ${runBlock(issue)}
       ${questionBlock(issue, external)}
       ${evidenceBlock(issue)}
       ${failure ? `<p class="meta error">retry ${escapeHtml(failure.retry_after || "now")}: ${escapeHtml(failure.last_error || "")}</p>` : ""}

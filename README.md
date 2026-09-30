@@ -370,7 +370,6 @@ normal exit) and `codex_rate_limits`, which has no source without the app-server
 - The API has no authentication or CSRF protection. It binds `127.0.0.1` only and assumes
   a single trusted local operator. Conversation text from transcripts is rendered on the
   board.
-- The server stops when its terminal closes; there is no supervisor yet.
 - Session detection matches CLI names. Using a different tool means adding its name to
   `sessions.names`, and its transcript format to `src/transcripts.js` for live detail.
 

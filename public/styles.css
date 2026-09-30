@@ -745,3 +745,25 @@ pre,
   margin-top: 0;
   align-items: center;
 }
+
+/* --- registered commands and the way into a folder --- */
+.card-actions.runs {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--line);
+}
+
+.card-actions.runs button {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.card-actions.runs button:first-child {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.card-actions.runs button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

@@ -59,6 +59,19 @@ notify:
   command: null
   # Answer within this window and no notification is sent; you were already there.
   after_waiting_ms: 60000
+commands:
+  # Buttons on every card. A task can add its own under its `commands` field; the board
+  # can only trigger what is registered here or there, never free text from the browser.
+  enabled: true
+  timeout_ms: 600000
+  shared:
+    git status: git status --short --branch
+    git diff: git diff --stat
+terminal:
+  # Opens the task's folder. If a session is already running there, its window is raised
+  # instead of a second one being opened beside it.
+  enabled: true
+  app: iTerm
 reply:
   # Answering from the board resumes the session by id in a new process. The board
   # refuses to send while a session is still open in that folder.

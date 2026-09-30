@@ -56,6 +56,8 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
   const guard = raw.dispatch_guard || {};
   const verify = raw.verify || {};
   const notify = raw.notify || {};
+  const commands = raw.commands || {};
+  const terminal = raw.terminal || {};
   const reply = raw.reply || {};
 
   const provider = Object.fromEntries(Object.entries(tracker.provider || {}).map(([key, value]) => {
@@ -84,6 +86,15 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
       on: arrayOfStrings(notify.on).map((name) => name.trim()).filter(Boolean),
       command: stringOrNull(notify.command),
       after_waiting_ms: positiveInteger(notify.after_waiting_ms, 60000)
+    },
+    commands: {
+      enabled: commands.enabled !== false,
+      timeout_ms: positiveInteger(commands.timeout_ms, 600000),
+      shared: normalizeCommands(commands.shared)
+    },
+    terminal: {
+      enabled: terminal.enabled !== false,
+      app: stringOrNull(terminal.app) || "Terminal"
     },
     reply: {
       enabled: reply.enabled !== false,
@@ -306,6 +317,19 @@ function pickDefaultAgent(requested, agents) {
   const name = typeof requested === "string" ? requested.trim() : "";
   if (name) return name;
   return Object.keys(agents)[0] || "";
+}
+
+// A task's runnable commands are registered, not typed in. The board can only trigger
+// what is already listed here, which keeps an unauthenticated local server from becoming
+// a way to run anything.
+function normalizeCommands(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out = {};
+  for (const [rawLabel, command] of Object.entries(value)) {
+    const label = String(rawLabel).trim();
+    if (label && typeof command === "string" && command.trim()) out[label] = command.trim();
+  }
+  return out;
 }
 
 function normalizeStateLimits(value) {

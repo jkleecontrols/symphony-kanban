@@ -6,6 +6,8 @@ import { expandPathValue, normalizeState, uniqueLowerLabels } from "./utils.js";
 import { scanExternalSessions, sessionsForPath } from "./sessions.js";
 import { suggestCommand } from "./verify.js";
 import { canReplyTo, sendReply } from "./reply.js";
+import { runVerification } from "./verify.js";
+import { openOrRaise } from "./terminal.js";
 import { isStale } from "./sessions.js";
 import { readActivity } from "./transcripts.js";
 
@@ -62,8 +64,10 @@ export function createServer(orchestrator, logger) {
       if (url.pathname.startsWith("/api/issues/")) {
         const id = decodeURIComponent(url.pathname.split("/")[3] || "");
         if (!id) return fail(res, 400, "invalid_request", "issue id is required");
-        if (url.pathname.endsWith("/reply") && req.method !== "POST") {
-          return fail(res, 404, "not_found", "reply takes POST");
+        for (const verb of ["reply", "run", "terminal"]) {
+          if (url.pathname.endsWith(`/${verb}`) && req.method !== "POST") {
+            return fail(res, 404, "not_found", `${verb} takes POST`);
+          }
         }
 
         if (req.method === "PATCH") {
@@ -72,6 +76,16 @@ export function createServer(orchestrator, logger) {
           if (!updated) return fail(res, 404, "issue_not_found", `unknown issue: ${id}`);
           logger.event("info", "issue_updated", { issue_id: id, identifier: updated.identifier, fields: Object.keys(patch) });
           return json(res, { ok: true, issue: updated });
+        }
+
+        if (url.pathname.endsWith("/run") && req.method === "POST") {
+          const runId = decodeURIComponent(url.pathname.split("/")[3] || "");
+          return json(res, await runRegisteredCommand(orchestrator, runId, await readJson(req)));
+        }
+
+        if (url.pathname.endsWith("/terminal") && req.method === "POST") {
+          const termId = decodeURIComponent(url.pathname.split("/")[3] || "");
+          return json(res, await openTerminalFor(orchestrator, termId));
         }
 
         if (url.pathname.endsWith("/reply") && req.method === "POST") {
@@ -116,6 +130,57 @@ export function createServer(orchestrator, logger) {
 // Answering from the board resumes the conversation in a new process. Beside an open
 // terminal that is the collision this project already hit once, so the board shows the
 // question but refuses to send until the session is closed.
+// Only commands already registered on the task or in WORKFLOW.md can be run. The board
+// never passes a command through from the browser, so an unauthenticated local server
+// does not become a way to run anything.
+async function runRegisteredCommand(orchestrator, issueId, body) {
+  const config = orchestrator.config;
+  if (!config.commands.enabled) throw invalid("running commands is disabled in WORKFLOW.md");
+
+  const issue = await findIssue(orchestrator, issueId);
+  if (!issue.workspace_path) throw invalid("this task has no project folder to run in");
+
+  const label = String(body.label ?? "").trim();
+  if (!label) throw invalid("a command label is required");
+
+  const available = { ...config.commands.shared, ...(issue.commands || {}) };
+  const command = available[label];
+  if (!command) {
+    throw invalid(`no command named ${label} for this task. available: ${Object.keys(available).join(", ") || "none"}`);
+  }
+
+  const result = await runVerification(command, issue.workspace_path, config.commands.timeout_ms);
+  const record = { at: new Date().toISOString(), label, ...result };
+  await orchestrator.tracker.updateIssue(issue.id, { last_command: record });
+  orchestrator.logger.event(result.ok ? "info" : "warn", "command_run", {
+    issue_id: issue.id, identifier: issue.identifier, label, ok: result.ok, exit_code: result.exit_code
+  });
+  return { ok: result.ok, command: record };
+}
+
+async function openTerminalFor(orchestrator, issueId) {
+  const config = orchestrator.config;
+  if (!config.terminal.enabled) throw invalid("opening a terminal is disabled in WORKFLOW.md");
+
+  const issue = await findIssue(orchestrator, issueId);
+  if (!issue.workspace_path) throw invalid("this task has no project folder to open");
+
+  const names = config.sessions.names;
+  const sessions = sessionsForPath(await scanExternalSessions(names.length ? names : undefined), issue.workspace_path);
+  const result = await openOrRaise(issue.workspace_path, { app: config.terminal.app, sessions });
+  orchestrator.logger.event("info", "terminal_opened", {
+    issue_id: issue.id, identifier: issue.identifier, ...result
+  });
+  return { ok: true, ...result, folder: issue.workspace_path };
+}
+
+async function findIssue(orchestrator, issueId) {
+  const issues = await orchestrator.tracker.readIssues();
+  const issue = issues.find((candidate) => candidate.id === issueId);
+  if (!issue) throw notFoundError(`unknown issue: ${issueId}`);
+  return issue;
+}
+
 async function replyToSession(orchestrator, issueId, body) {
   const config = orchestrator.config;
   if (!config.reply.enabled) throw invalid("replying is disabled in WORKFLOW.md");
@@ -217,6 +282,9 @@ function boardConfig(orchestrator) {
       description: definition.description
     })),
     verify_enabled: config.verify.enabled,
+    shared_commands: config.commands.shared,
+    terminal_enabled: config.terminal.enabled,
+    terminal_app: config.terminal.app,
     default_verify_command: config.verify.command,
     polling_interval_ms: config.polling.interval_ms,
     tracker_kind: config.tracker.kind
