@@ -36,8 +36,7 @@ export async function syncVault({ vault, projects, dryRun = false }) {
 
     for (const relative of files) {
       const target = path.join(project.path, relative);
-      const link = path.join(dest, relative.replaceAll(path.sep, " · "));
-      if (!dryRun) await replaceLink(link, target);
+      if (!dryRun) await replaceLink(path.join(dest, linkName(name, relative)), target);
     }
 
     if (!dryRun) await writeIndex(root, name, project, files);
@@ -79,13 +78,32 @@ async function replaceLink(link, target) {
   await fs.symlink(target, link);
 }
 
+// The project's own note lives inside its folder, so the vault shows one entry per project
+// rather than a note and a folder of the same name side by side.
+function indexPathFor(root, name) {
+  return path.join(root, name, `${name}.md`);
+}
+
+// Where the note used to be. Read once to carry its log over, then removed.
+function legacyIndexPath(root, name) {
+  return path.join(root, `${name}.md`);
+}
+
+// A repository file that would land on the project note's own name is linked under
+// another one; otherwise the link would replace the note and its log.
+function linkName(name, relative) {
+  const flat = relative.replaceAll(path.sep, " · ");
+  return flat === `${name}.md` ? `${name} · file.md` : flat;
+}
+
 // One note per project: the entry point Obsidian's graph hangs the rest off.
 async function writeIndex(root, name, project, files) {
-  const indexPath = path.join(root, `${name}.md`);
+  const indexPath = indexPathFor(root, name);
+  const legacyPath = legacyIndexPath(root, name);
   // Linked by path, not by name alone: most projects have a README, a CLAUDE and a
   // handoff · STATUS, and a bare [[README]] cannot say which project's it means.
   const links = files
-    .map((relative) => relative.replaceAll(path.sep, " · ").replace(/\.md$/, ""))
+    .map((relative) => linkName(name, relative).replace(/\.md$/, ""))
     .sort()
     .map((note) => `- [[Projects/${name}/${note}|${note}]]`)
     .join("\n");
@@ -106,14 +124,18 @@ ${LOG_MARKER}
 
   // Anything already written under the log marker is kept.
   let existingLog = "";
-  try {
-    const current = await fs.readFile(indexPath, "utf8");
-    const at = current.indexOf(LOG_MARKER);
-    if (at !== -1) existingLog = current.slice(at + LOG_MARKER.length);
-  } catch {
-    // first run
+  for (const candidate of [indexPath, legacyPath]) {
+    try {
+      const current = await fs.readFile(candidate, "utf8");
+      const at = current.indexOf(LOG_MARKER);
+      if (at !== -1) existingLog = current.slice(at + LOG_MARKER.length);
+      break;
+    } catch {
+      // not there: first run, or already moved
+    }
   }
   await fs.writeFile(indexPath, body + existingLog.replace(/^\n+/, "\n"));
+  await fs.rm(legacyPath, { force: true });
 }
 
 async function markdownFiles(dir, prefix = "", depth = 0) {
@@ -141,13 +163,19 @@ async function markdownFiles(dir, prefix = "", depth = 0) {
 // Appends one line under a project's Log heading. This is how a finished run leaves a
 // trace that outlives the board's own state.
 export async function appendToLog(vault, projectName, line) {
-  const indexPath = path.join(vault, "Projects", `${projectName}.md`);
+  const root = path.join(vault, "Projects");
+  let indexPath;
   let current;
-  try {
-    current = await fs.readFile(indexPath, "utf8");
-  } catch {
-    return false;
+  for (const candidate of [indexPathFor(root, projectName), legacyIndexPath(root, projectName)]) {
+    try {
+      current = await fs.readFile(candidate, "utf8");
+      indexPath = candidate;
+      break;
+    } catch {
+      // try the next place
+    }
   }
+  if (current === undefined) return false;
   const at = current.indexOf(LOG_MARKER);
   if (at === -1) return false;
   const head = current.slice(0, at + LOG_MARKER.length);

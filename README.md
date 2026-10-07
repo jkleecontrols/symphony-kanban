@@ -43,7 +43,8 @@ contains your folder paths and what you are working on.
 ## Obsidian
 
 `scripts/vault-sync.js` symlinks every markdown file in a tracked project into an Obsidian
-vault under `Projects/<name>/`, and writes a note per project listing them. Symlinks, not
+vault under `Projects/<name>/`, and writes a note per project listing them, inside that
+folder as `Projects/<name>/<name>.md`. Symlinks, not
 copies: a note opened in the vault is the file in the repository, and an edit either side
 is the same edit. Only the markdown is linked — these repositories hold thousands of files
 each and Obsidian would otherwise index all of them.
