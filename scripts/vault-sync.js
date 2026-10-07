@@ -82,9 +82,12 @@ async function replaceLink(link, target) {
 // One note per project: the entry point Obsidian's graph hangs the rest off.
 async function writeIndex(root, name, project, files) {
   const indexPath = path.join(root, `${name}.md`);
+  // Linked by path, not by name alone: most projects have a README, a CLAUDE and a
+  // handoff · STATUS, and a bare [[README]] cannot say which project's it means.
   const links = files
-    .map((relative) => `- [[${relative.replaceAll(path.sep, " · ").replace(/\.md$/, "")}]]`)
+    .map((relative) => relative.replaceAll(path.sep, " · ").replace(/\.md$/, ""))
     .sort()
+    .map((note) => `- [[Projects/${name}/${note}|${note}]]`)
     .join("\n");
 
   const body = `# ${name}
