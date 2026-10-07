@@ -876,3 +876,27 @@ pre,
 
 .gauge { margin-bottom: 11px; }
 .gauge:hover .gauge-value { color: var(--accent); }
+
+/* --- which project and branch a card belongs to --- */
+.project-badge {
+  display: inline-block;
+  margin-top: 7px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-2);
+  color: var(--accent-2);
+  font-size: 11px;
+}
+
+.role-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--soft);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+#projectFilter { max-width: 190px; }

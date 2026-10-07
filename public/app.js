@@ -13,6 +13,7 @@ const openEvidence = new Set();
 const replyDrafts = new Map();
 let usage = null;
 let usageOpen = false;
+let projectFilter = "";
 
 const THEMES = ["apple", "pink", "blue"];
 const THEME_KEY = "symphony.theme";
@@ -26,6 +27,11 @@ applyTheme(storedTheme() || "apple");
 el("themes").addEventListener("click", (event) => {
   const pick = event.target.closest("[data-theme-pick]");
   if (pick) applyTheme(pick.dataset.themePick);
+});
+
+el("projectFilter").addEventListener("change", (event) => {
+  projectFilter = event.target.value;
+  renderBoard();
 });
 
 el("refreshButton").addEventListener("click", () => refresh());
@@ -102,6 +108,7 @@ async function onComposerSubmit(event) {
     labels: parseLabels(form.labels.value),
     workspace_path: form.workspace_path.value.trim() || null,
     verify_command: form.verify_command.value.trim() || null,
+    role: form.role.value.trim() || null,
     dispatchable: form.dispatchable.checked
   };
 
@@ -264,6 +271,7 @@ async function onBoardSubmit(event) {
       agent: fields.agent.value || null,
       workspace_path: fields.workspace_path.value.trim() || null,
       verify_command: fields.verify_command.value.trim() || null,
+      role: fields.role.value.trim() || null,
       dispatchable: fields.dispatchable.checked
     });
   } catch (error) {
@@ -364,14 +372,16 @@ function renderMetrics() {
 }
 
 function renderBoard() {
+  renderProjectFilter();
   const claimByIssue = new Map(snapshot.claims.map((claim) => [claim.issue_id, claim]));
   const failureByIssue = snapshot.failures;
   const draw = (issue) => card(issue, claimByIssue.get(issue.id), failureByIssue[issue.id], sessionsFor(issue));
 
+  const visible = projectFilter ? issues.filter((issue) => (issue.project || "") === projectFilter) : issues;
   const columns = config.states.filter((state) => lower(state) !== ARCHIVE_STATE);
-  const archived = issues.filter((issue) => lower(issue.state) === ARCHIVE_STATE);
+  const archived = visible.filter((issue) => lower(issue.state) === ARCHIVE_STATE);
   const known = new Set([...columns.map(lower), ARCHIVE_STATE]);
-  const leftovers = issues.filter((issue) => !known.has(lower(issue.state)));
+  const leftovers = visible.filter((issue) => !known.has(lower(issue.state)));
   if (leftovers.length) columns.push(OTHER_COLUMN);
 
   const archiveHost = columns.find((column) => lower(column) === "done")
@@ -381,7 +391,7 @@ function renderBoard() {
   boardEl.innerHTML = columns.map((column) => {
     const columnIssues = column === OTHER_COLUMN
       ? leftovers
-      : issues.filter((issue) => lower(issue.state) === lower(column));
+      : visible.filter((issue) => lower(issue.state) === lower(column));
     const archiveHere = column === archiveHost && archived.length;
     return `
       <section class="column">
@@ -421,10 +431,12 @@ function card(issue, claim, failure, external = []) {
       <div class="eyebrow">
         ${escapeHtml(issue.identifier)} · P${issue.priority ?? "-"}
         ${agentName ? `<span class="agent-badge">${escapeHtml(agentLabel(agentName))}</span>` : `<span class="agent-badge muted">no AI</span>`}
+        ${issue.role ? `<span class="role-badge">${escapeHtml(issue.role)}</span>` : ""}
         ${claim || external.length ? '<span class="spinner" role="status" aria-label="session running"></span>' : ""}
       </div>
       <h3>${escapeHtml(issue.title)}</h3>
       ${issue.description ? `<p class="description">${escapeHtml(issue.description)}</p>` : ""}
+      ${projectBadge(issue)}
       ${issue.workspace_path ? `<span class="folder">${escapeHtml(shortenPath(issue.workspace_path))}</span>` : ""}
       <div class="tags">${issue.labels.map((label) => `<span class="tag">${escapeHtml(label)}</span>`).join("")}</div>
       <p class="meta">
@@ -471,6 +483,7 @@ function editCard(issue) {
         <label><span>Labels</span><input name="labels" type="text" value="${escapeAttr(issue.labels.join(", "))}"></label>
         <label><span>Project folder</span><input name="workspace_path" type="text" value="${escapeAttr(issue.workspace_path || "")}" placeholder="blank = managed workspace"></label>
         <label><span>Check command</span><input name="verify_command" type="text" value="${escapeAttr(issue.verify_command || "")}" placeholder="npm test"></label>
+        <label><span>Role</span><input name="role" type="text" value="${escapeAttr(issue.role || "")}" placeholder="experiment"></label>
         <label><span>Assigned AI</span>
           <select name="agent">
             <option value="">No AI</option>
@@ -512,6 +525,27 @@ function sessionsFor(issue) {
 // A session that ended its turn with a question is waiting on a person. Show what it
 // asked, and offer to answer only when nothing is still open in that folder -- resuming
 // a conversation beside a live terminal makes two processes fight over it.
+// Several worktrees of one repository are several cards of one project, so the board can
+// show just that project while the rest stays out of the way.
+function renderProjectFilter() {
+  const select = el("projectFilter");
+  const projects = [...new Set(issues.map((issue) => issue.project).filter(Boolean))].sort();
+  const options = ['<option value="">All projects</option>']
+    .concat(projects.map((p) => `<option value="${escapeAttr(p)}">${escapeHtml(shortenPath(p))}</option>`));
+  const next = options.join("");
+  if (select.innerHTML !== next) select.innerHTML = next;
+  select.value = projects.includes(projectFilter) ? projectFilter : "";
+  if (select.value !== projectFilter) projectFilter = select.value;
+  select.hidden = projects.length < 2;
+}
+
+function projectBadge(issue) {
+  if (!issue.project && !issue.branch_name) return "";
+  const repo = issue.project ? issue.project.split("/").filter(Boolean).pop() : null;
+  const parts = [repo, issue.branch_name].filter(Boolean).join(" · ");
+  return `<span class="project-badge">${escapeHtml(parts)}</span>`;
+}
+
 // Buttons for the commands registered on this task, plus a way into its folder. The
 // board sends a label, never a command, so nothing typed in a browser gets run.
 function runBlock(issue) {

@@ -15,7 +15,11 @@ export async function inspect(folder) {
     const branch = (await git(folder, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
     const status = await git(folder, ["status", "--porcelain"]);
     const dirty = status.split("\n").filter(Boolean).length;
-    return { git: true, top, head, branch, dirty };
+    // In a worktree, top is the worktree and the shared .git lives with the main
+    // checkout, so its parent is the project every worktree belongs to.
+    const commonDir = (await git(folder, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
+    const project = commonDir ? path.dirname(commonDir) : top;
+    return { git: true, top, head, branch, dirty, project, is_worktree: project !== top };
   } catch (error) {
     return { git: false, reason: reasonFor(error, folder) };
   }

@@ -20,6 +20,7 @@
         </div>
         <button id="composerToggle" type="button" class="primary">+ New Task</button>
         <button id="pollButton" type="button">Poll Now</button>
+        <select id="projectFilter" title="Show one project"></select>
         <button id="refreshButton" type="button">Refresh</button>
       </div>
       <div class="gauges" id="usageGauges" hidden></div>
@@ -59,6 +60,10 @@
             <label class="wide">
               <span>Check command <em>run after each agent run, as proof</em></span>
               <input name="verify_command" type="text" placeholder="npm test — leave blank for no check">
+            </label>
+            <label>
+              <span>Role <em>experiment, review…</em></span>
+              <input name="role" type="text" placeholder="experiment">
             </label>
             <label class="wide">
               <span>Project folder <em>the agent runs here</em></span>

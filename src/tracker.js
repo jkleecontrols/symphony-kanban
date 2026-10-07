@@ -19,6 +19,8 @@ const MUTABLE_FIELDS = new Set([
   "last_run",
   "last_reply",
   "commands",
+  "project",
+  "role",
   "last_command",
   "branch_name",
   "blocked_by"
@@ -80,7 +82,9 @@ export class LocalJsonTracker {
         verify_command: input.verify_command == null || input.verify_command === "" ? null : String(input.verify_command),
         last_run: input.last_run && typeof input.last_run === "object" ? input.last_run : null,
         last_reply: input.last_reply && typeof input.last_reply === "object" ? input.last_reply : null,
-        commands: input.commands && typeof input.commands === "object" && !Array.isArray(input.commands) ? input.commands : null,
+        project: input.project == null || input.project === "" ? null : String(input.project),
+    role: input.role == null || input.role === "" ? null : String(input.role),
+    commands: input.commands && typeof input.commands === "object" && !Array.isArray(input.commands) ? input.commands : null,
         last_command: input.last_command && typeof input.last_command === "object" ? input.last_command : null,
         created_at: now,
         updated_at: now
@@ -106,6 +110,8 @@ export class LocalJsonTracker {
         else if (key === "verify_command") issue.verify_command = value == null || value === "" ? null : String(value);
         else if (key === "last_run") issue.last_run = value && typeof value === "object" ? value : null;
         else if (key === "last_reply") issue.last_reply = value && typeof value === "object" ? value : null;
+        else if (key === "project") issue.project = value == null || value === "" ? null : String(value);
+        else if (key === "role") issue.role = value == null || value === "" ? null : String(value);
         else if (key === "commands") issue.commands = value && typeof value === "object" && !Array.isArray(value) ? value : null;
         else if (key === "last_command") issue.last_command = value && typeof value === "object" ? value : null;
         else if (key === "title") issue.title = String(value ?? "").trim();
@@ -175,6 +181,10 @@ export function normalizeIssue(input) {
     last_run: input.last_run && typeof input.last_run === "object" ? input.last_run : null,
     commands: input.commands && typeof input.commands === "object" && !Array.isArray(input.commands) ? input.commands : null,
     last_command: input.last_command && typeof input.last_command === "object" ? input.last_command : null,
+    last_reply: input.last_reply && typeof input.last_reply === "object" ? input.last_reply : null,
+    // Several worktrees of one repository are several cards of one project.
+    project: input.project == null || input.project === "" ? null : String(input.project),
+    role: input.role == null || input.role === "" ? null : String(input.role),
     created_at: input.created_at ?? null,
     updated_at: input.updated_at ?? null
   };

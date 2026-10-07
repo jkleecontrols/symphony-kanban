@@ -119,3 +119,41 @@ test("the guard can be turned off", async () => {
   assert.equal(orchestrator.guardRefused.size, 0);
   await orchestrator.claims.get("local-1")?.promise?.catch(() => {});
 });
+
+test("a task waits while the work it depends on is still running", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "symphony-blocked-"));
+  const issuesPath = path.join(dir, "issues.json");
+  const base = (id, extra) => ({
+    id, identifier: `KAN-${id.split("-")[1]}`, title: id, state: "Ready",
+    labels: ["symphony"], dispatchable: true, agent: "noop",
+    updated_at: new Date().toISOString(), ...extra
+  });
+  await fs.writeFile(issuesPath, JSON.stringify([
+    base("local-1"),
+    base("local-2", { blocked_by: [{ id: "local-1", identifier: "KAN-1", state: "Ready" }] })
+  ], null, 2));
+
+  const config = resolveConfig({
+    tracker: { kind: "local_json", provider: { path: issuesPath }, active_states: ["Ready"], terminal_states: ["Done"] },
+    workspace: { root: path.join(dir, "workspaces") },
+    agents: { noop: { command: "true" } },
+    agent: { max_turns: 1 },
+    dispatch_guard: { require_git: false },
+    sessions: { watch: false },
+    archive: { enabled: false },
+    notify: { enabled: false }
+  }, dir);
+  const orchestrator = new Orchestrator({ path: dir, dir, config, rawConfig: {}, promptTemplate: "x" }, logger);
+  orchestrator.scanSessions = async () => [];
+
+  await orchestrator.poll();
+  assert.equal(orchestrator.claims.has("local-2"), false, "the dependent task must not start while its blocker is active");
+  await Promise.all([...orchestrator.claims.values()].map((c) => c.promise?.catch(() => {})));
+
+  // The blocker finishes; the dependent one is free.
+  await orchestrator.tracker.updateIssueState("local-1", "Done");
+  await orchestrator.poll();
+  assert.ok(orchestrator.claims.has("local-2") || !(await orchestrator.tracker.readIssues()).find((i) => i.id === "local-2").dispatchable === false,
+    "once the blocker is terminal the dependent task becomes eligible");
+  await Promise.all([...orchestrator.claims.values()].map((c) => c.promise?.catch(() => {})));
+});

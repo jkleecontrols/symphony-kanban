@@ -325,6 +325,9 @@ async function createIssue(orchestrator, body) {
     agent,
     workspace_path: workspacePath,
     verify_command: body.verify_command == null || String(body.verify_command).trim() === "" ? null : String(body.verify_command).trim(),
+    project: body.project == null || String(body.project).trim() === "" ? null : String(body.project).trim(),
+    role: body.role == null || String(body.role).trim() === "" ? null : String(body.role).trim(),
+    branch_name: body.branch_name == null || String(body.branch_name).trim() === "" ? null : String(body.branch_name).trim(),
     dispatchable: body.dispatchable === undefined ? true : Boolean(body.dispatchable)
   });
 }
@@ -347,6 +350,12 @@ async function buildPatch(orchestrator, body) {
     patch.labels = uniqueLowerLabels([...body.labels, ...config.tracker.required_labels]);
   }
   if ("agent" in body) patch.agent = resolveRequestedAgent(body.agent, config);
+  for (const field of ["project", "role", "branch_name"]) {
+    if (field in body) {
+      const value = body[field] == null ? "" : String(body[field]).trim();
+      patch[field] = value || null;
+    }
+  }
   if ("workspace_path" in body) patch.workspace_path = await resolveWorkspacePath(body.workspace_path, orchestrator);
   if ("verify_command" in body) {
     const command = body.verify_command == null ? "" : String(body.verify_command).trim();

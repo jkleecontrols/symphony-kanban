@@ -40,6 +40,36 @@ library and nothing else. Node 20 or newer.
 `data/issues.json` holds your real task list and is deliberately not tracked by git — it
 contains your folder paths and what you are working on.
 
+## Parallel work in one repository
+
+A task is a folder, and a git worktree is a folder, so several worktrees of one repository
+are several cards of one project — each on its own branch, each with its own session.
+
+```sh
+cd ~/research/magnet
+git worktree add ../magnet-exp-a -b exp/a
+git worktree add ../magnet-review -b review
+```
+
+Each worktree gets a card, either by starting a session in it or by adding the card first
+and setting its `role`. The board fills in `project` (the repository every worktree shares)
+and `branch_name` on each poll, shows both on the card, and the filter in the top bar
+narrows the board to one project.
+
+`role` is a free label — `experiment`, `review` — that says what a card is for.
+
+`blocked_by` decides the order. A review task listing the experiments it compares is not
+dispatched until each of them reaches a terminal state, which is how a comparison waits for
+the runs it compares without anyone watching the clock.
+
+The guards that make this safe are the ones already in place: one worker per folder means
+one per worktree, and Symphony will not dispatch into a worktree where a session of yours
+is open.
+
+Two things worth knowing before running several at once. Worktrees share one `.git`, so
+simultaneous commits can collide on `index.lock`. And N parallel sessions cost N times as
+much, which is what the usage rings are for.
+
 ## One task per project folder
 
 A task's `workspace_path` names a folder you already work in. The agent for that task

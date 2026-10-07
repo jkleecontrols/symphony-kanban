@@ -120,3 +120,49 @@ test("concurrent creates are serialized by the file lock", async () => {
   assert.equal(new Set(issues.map((issue) => issue.id)).size, 8, "ids must be unique");
   assert.equal(new Set(issues.map((issue) => issue.identifier)).size, 8, "identifiers must be unique");
 });
+
+// normalizeIssue is a fixed field list, so a field added to the model but forgotten here
+// is dropped on every read without an error. That has now happened three times --
+// agent, last_reply, project -- each time silently. This asserts the whole shape.
+test("every mutable field survives a write and a read", async () => {
+  const tracker = await freshTracker();
+  const created = await tracker.createIssue({
+    title: "round trip",
+    state: "Ready",
+    labels: ["symphony"],
+    dispatchable: true,
+    agent: "claude",
+    workspace_path: "/tmp",
+    verify_command: "npm test",
+    commands: { tests: "npm test" },
+    project: "/tmp/project",
+    role: "experiment",
+    branch_name: "exp/a",
+    last_run: { at: "2026-01-01T00:00:00.000Z", summary: "ok" },
+    last_reply: { at: "2026-01-01T00:00:00.000Z", answer: "yes" },
+    last_command: { at: "2026-01-01T00:00:00.000Z", label: "tests" }
+  });
+
+  const expected = {
+    agent: "claude",
+    workspace_path: "/tmp",
+    verify_command: "npm test",
+    project: "/tmp/project",
+    role: "experiment",
+    branch_name: "exp/a"
+  };
+  for (const [field, value] of Object.entries(expected)) {
+    assert.equal(created[field], value, `createIssue dropped ${field}`);
+  }
+  for (const field of ["commands", "last_run", "last_reply", "last_command"]) {
+    assert.ok(created[field], `createIssue dropped ${field}`);
+  }
+
+  const [reloaded] = await tracker.readIssues();
+  for (const [field, value] of Object.entries(expected)) {
+    assert.equal(reloaded[field], value, `normalizeIssue dropped ${field} on read`);
+  }
+  for (const field of ["commands", "last_run", "last_reply", "last_command"]) {
+    assert.ok(reloaded[field], `normalizeIssue dropped ${field} on read`);
+  }
+});

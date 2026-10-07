@@ -63,6 +63,7 @@ export class Orchestrator {
     this.waitingSince = new Map();
     // Issues already refused by the dispatch guard, so the reason is logged once.
     this.guardRefused = new Map();
+    this.blockedNotice = new Map();
     this.lastChanges = new Map();
   }
 
@@ -100,6 +101,7 @@ export class Orchestrator {
       .filter((issue) => issueHasRequiredLabels(issue, this.config.tracker.required_labels))
       .filter((issue) => !this.claims.has(issue.id))
       .filter((issue) => this.retryAllowed(issue.id))
+      .filter((issue) => this.blockersCleared(issue, candidates))
       .sort(compareIssues);
 
     for (const issue of dispatchable) {
@@ -240,6 +242,36 @@ export class Orchestrator {
       });
     this.claims.set(issue.id, claim);
     this.logger.event("info", "issue_claimed", { issue_id: issue.id, identifier: issue.identifier, claim_id: claim.claim_id, attempt });
+  }
+
+  // A review task waits for the experiments it compares. The spec gave issues blocked_by
+  // and we had never consulted it; a blocker counts as cleared once it reaches a terminal
+  // state or disappears from the tracker.
+  blockersCleared(issue, known) {
+    if (!issue.blocked_by?.length) return true;
+    const terminal = new Set(this.config.tracker.terminal_states);
+    const byId = new Map(known.map((candidate) => [candidate.id, candidate]));
+
+    for (const blocker of issue.blocked_by) {
+      const live = blocker.id ? byId.get(blocker.id) : null;
+      // Not among the active candidates means it is finished, gone, or not running.
+      const state = normalizeState(live ? live.state : blocker.state);
+      if (!live) continue;
+      if (!terminal.has(state)) {
+        if (this.blockedNotice.get(issue.id) !== blocker.id) {
+          this.blockedNotice.set(issue.id, blocker.id);
+          this.logger.event("info", "dispatch_blocked", {
+            issue_id: issue.id,
+            identifier: issue.identifier,
+            blocked_by: blocker.identifier || blocker.id,
+            blocker_state: live.state
+          });
+        }
+        return false;
+      }
+    }
+    this.blockedNotice.delete(issue.id);
+    return true;
   }
 
   canDispatch(issue) {
@@ -443,6 +475,7 @@ export class Orchestrator {
     }
 
     if (settings.autodiscover) await this.discoverFolders(sessions, issues, settings);
+    await this.refreshRepoFacts(issues);
     await this.alertOnStaleQuestions(await this.tracker.readIssues());
   }
 
@@ -479,6 +512,7 @@ export class Orchestrator {
       if (isStale(session, settings.stale_after_hours)) continue;
       const folder = await this.projectRootOf(session.cwd);
       if (!folder || seen.has(folder) || known.has(folder)) continue;
+      const repo = await inspect(folder).catch(() => null);
       if (roots.length && !roots.some((root) => folder === root || folder.startsWith(`${root}${path.sep}`))) continue;
       seen.add(folder);
 
@@ -490,13 +524,38 @@ export class Orchestrator {
           labels: this.config.tracker.required_labels,
           agent: session.name,
           workspace_path: folder,
+          project: repo?.project || folder,
+          branch_name: repo?.branch || null,
           dispatchable: false
         });
         this.logger.event("info", "folder_discovered", {
-          issue_id: created.id, identifier: created.identifier, path: folder, agent: session.name
+          issue_id: created.id,
+          identifier: created.identifier,
+          path: folder,
+          agent: session.name,
+          project: created.project,
+          branch: created.branch_name
         });
       } catch (error) {
         this.logger.event("warn", "folder_discovery_failed", { path: folder, error: error.message });
+      }
+    }
+  }
+
+  // A worktree's branch changes under the board's feet, so the card follows it.
+  async refreshRepoFacts(issues) {
+    for (const issue of issues) {
+      if (!issue.workspace_path) continue;
+      const repo = await inspect(issue.workspace_path).catch(() => null);
+      if (!repo?.git) continue;
+      const patch = {};
+      if (repo.project && repo.project !== issue.project) patch.project = repo.project;
+      if (repo.branch && repo.branch !== issue.branch_name) patch.branch_name = repo.branch;
+      if (!Object.keys(patch).length) continue;
+      try {
+        await this.tracker.updateIssue(issue.id, patch);
+      } catch (error) {
+        this.logger.event("warn", "repo_facts_failed", { issue_id: issue.id, error: error.message });
       }
     }
   }
