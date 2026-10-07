@@ -7,6 +7,7 @@ import { changesSince, inspect } from "./gitguard.js";
 import path from "node:path";
 import { lastActivity } from "./transcripts.js";
 import { runVerification, summarize } from "./verify.js";
+import { appendToLog } from "../scripts/vault-sync.js";
 import { Notifier } from "./notify.js";
 
 // The busiest session in a folder decides the card: one turn running anywhere in it
@@ -347,6 +348,30 @@ export class Orchestrator {
       this.logger.event("warn", "evidence_write_failed", { issue_id: issue.id, error: error.message });
     }
     this.logger.event("info", "run_evidence", { issue_id: issue.id, identifier: issue.identifier, summary: evidence.summary });
+    await this.logToVault(issue, evidence);
+  }
+
+  // The board's own state is transient. A finished run leaves a line in the project's
+  // note so the record outlives it, and sits beside the notes written by hand.
+  async logToVault(issue, evidence) {
+    const vault = this.config.vault;
+    if (!vault.enabled || !vault.path) return;
+    const project = issue.project || issue.workspace_path;
+    if (!project) return;
+
+    const when = new Date().toISOString().slice(0, 10);
+    const who = evidence.agent ? ` (${evidence.agent})` : "";
+    const where = issue.branch_name ? ` on \`${issue.branch_name}\`` : "";
+    const line = `- ${when}${who}${where} — ${evidence.summary} · ${issue.identifier} ${issue.title}`;
+
+    try {
+      const written = await appendToLog(vault.path, project.split("/").filter(Boolean).pop(), line);
+      if (!written) {
+        this.logger.event("warn", "vault_note_missing", { issue_id: issue.id, project });
+      }
+    } catch (error) {
+      this.logger.event("warn", "vault_log_failed", { issue_id: issue.id, error: error.message });
+    }
   }
 
   recordUsage(liveSession, claim) {

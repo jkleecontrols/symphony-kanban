@@ -40,6 +40,27 @@ library and nothing else. Node 20 or newer.
 `data/issues.json` holds your real task list and is deliberately not tracked by git — it
 contains your folder paths and what you are working on.
 
+## Obsidian
+
+`scripts/vault-sync.js` symlinks every markdown file in a tracked project into an Obsidian
+vault under `Projects/<name>/`, and writes a note per project listing them. Symlinks, not
+copies: a note opened in the vault is the file in the repository, and an edit either side
+is the same edit. Only the markdown is linked — these repositories hold thousands of files
+each and Obsidian would otherwise index all of them.
+
+```yaml
+vault:
+  enabled: true
+  path: ~/Documents/Obsidian Vault
+```
+
+With that set, a finished run appends a line to its project note under `## Log` — date,
+agent, branch, what changed, whether the checks passed. The board's own state is transient;
+the note is what accumulates.
+
+Run `node scripts/vault-sync.js` after adding markdown to a repository, since new files do
+not appear until the links are rebuilt.
+
 ## Parallel work in one repository
 
 A task is a folder, and a git worktree is a folder, so several worktrees of one repository

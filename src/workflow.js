@@ -55,6 +55,7 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
   const archive = raw.archive || {};
   const guard = raw.dispatch_guard || {};
   const usage = raw.usage || {};
+  const vault = raw.vault || {};
   const verify = raw.verify || {};
   const notify = raw.notify || {};
   const commands = raw.commands || {};
@@ -100,6 +101,10 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
     reply: {
       enabled: reply.enabled !== false,
       timeout_ms: positiveInteger(reply.timeout_ms, 900000)
+    },
+    vault: {
+      enabled: vault.enabled === true,
+      path: vault.path ? expandPathValue(vault.path, workflowDir, env) : null
     },
     usage: {
       enabled: usage.enabled !== false,

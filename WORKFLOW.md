@@ -85,6 +85,10 @@ reply:
   # refuses to send while a session is still open in that folder.
   enabled: true
   timeout_ms: 900000
+vault:
+  # Where finished runs leave a line, beside the notes written by hand.
+  enabled: true
+  path: ~/Documents/Obsidian Vault
 usage:
   # Codex reports real rate limits. Claude Code records what a session cost but not your
   # plan's ceiling, so declare a budget to get a gauge for it.
