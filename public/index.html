@@ -22,6 +22,13 @@
         <button id="pollButton" type="button">Poll Now</button>
         <button id="refreshButton" type="button">Refresh</button>
       </div>
+      <button id="usageToggle" class="gauge" type="button" hidden aria-expanded="false">
+        <svg viewBox="0 0 36 36" aria-hidden="true">
+          <circle class="gauge-track" cx="18" cy="18" r="15.5"></circle>
+          <circle class="gauge-fill" cx="18" cy="18" r="15.5"></circle>
+        </svg>
+        <span class="gauge-value" id="usageValue">--</span>
+      </button>
     </header>
 
     <div id="banner" class="banner" hidden></div>
@@ -76,6 +83,7 @@
         </form>
       </section>
 
+      <section class="usage" id="usagePanel" hidden></section>
       <section class="metrics" id="metrics"></section>
       <div id="freezeNotice" class="freeze-notice" hidden>Board auto-refresh is paused while you edit a card.</div>
       <section class="board" id="board"></section>

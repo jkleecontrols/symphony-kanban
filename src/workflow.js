@@ -54,6 +54,7 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
   const sessions = raw.sessions || {};
   const archive = raw.archive || {};
   const guard = raw.dispatch_guard || {};
+  const usage = raw.usage || {};
   const verify = raw.verify || {};
   const notify = raw.notify || {};
   const commands = raw.commands || {};
@@ -100,6 +101,15 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
       enabled: reply.enabled !== false,
       timeout_ms: positiveInteger(reply.timeout_ms, 900000)
     },
+    usage: {
+      enabled: usage.enabled !== false,
+      budgets: {
+        claude: {
+          weekly_usd: Number(usage.budgets?.claude?.weekly_usd) || null,
+          monthly_usd: Number(usage.budgets?.claude?.monthly_usd) || null
+        }
+      }
+    },
     verify: {
       enabled: verify.enabled !== false,
       command: stringOrNull(verify.command),
@@ -110,6 +120,9 @@ export function resolveConfig(raw, workflowDir, env = process.env) {
       names: arrayOfStrings(sessions.names).map((name) => name.trim()).filter(Boolean),
       settle_polls: positiveInteger(sessions.settle_polls, 2),
       stale_after_hours: Number(sessions.stale_after_hours ?? 12),
+      revive_from_terminal: sessions.revive_from_terminal !== false,
+      autodiscover: sessions.autodiscover === true,
+      autodiscover_roots: arrayOfStrings(sessions.autodiscover_roots).map((r) => r.trim()).filter(Boolean),
       states: {
         working: stringOrNull(sessions.states?.working),
         idle: stringOrNull(sessions.states?.idle),

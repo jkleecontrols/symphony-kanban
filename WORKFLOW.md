@@ -37,6 +37,14 @@ sessions:
   settle_polls: 2
   # A terminal left open for days is not work in progress.
   stale_after_hours: 12
+  # A card parked in Archive whose folder starts working again comes back.
+  revive_from_terminal: true
+  # A session in a folder with no card gets one. Limit where that can happen.
+  autodiscover: true
+  autodiscover_roots:
+    - ~/research
+    - ~/symphony-kanban
+    - ~/jkleecontrols.github.io
   states:
     working: In Progress
     idle: Ready
@@ -77,6 +85,14 @@ reply:
   # refuses to send while a session is still open in that folder.
   enabled: true
   timeout_ms: 900000
+usage:
+  # Codex reports real rate limits. Claude Code records what a session cost but not your
+  # plan's ceiling, so declare a budget to get a gauge for it.
+  enabled: true
+  budgets:
+    claude:
+      weekly_usd: 200
+      monthly_usd: 600
 verify:
   # After an agent run, run the task's own check and attach the result to the card.
   # A task sets its own `verify_command`; this is the fallback for tasks that do not.

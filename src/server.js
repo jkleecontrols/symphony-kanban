@@ -8,6 +8,7 @@ import { suggestCommand } from "./verify.js";
 import { canReplyTo, sendReply } from "./reply.js";
 import { runVerification } from "./verify.js";
 import { openOrRaise } from "./terminal.js";
+import { collectUsage } from "./usage.js";
 import { isStale } from "./sessions.js";
 import { readActivity } from "./transcripts.js";
 
@@ -30,6 +31,11 @@ export function createServer(orchestrator, logger) {
         return json(res, detail);
       }
 
+      if (url.pathname === "/api/usage") {
+        if (!orchestrator.config.usage.enabled) return json(res, { enabled: false, sources: [] });
+        const force = url.searchParams.get("refresh") === "1";
+        return json(res, { enabled: true, ...await collectUsage(orchestrator.config, { force }) });
+      }
       if (url.pathname === "/api/config") return json(res, boardConfig(orchestrator));
       if (url.pathname === "/api/suggest-verify") {
         const folder = url.searchParams.get("path") || "";

@@ -4,6 +4,7 @@ import { WorkspaceManager } from "./workspace.js";
 import { normalizeState, nowIso, sleep } from "./utils.js";
 import { isStale, scanExternalSessions, sessionsForPath } from "./sessions.js";
 import { changesSince, inspect } from "./gitguard.js";
+import path from "node:path";
 import { lastActivity } from "./transcripts.js";
 import { runVerification, summarize } from "./verify.js";
 import { Notifier } from "./notify.js";
@@ -18,6 +19,10 @@ function phaseOf(sessions) {
 }
 
 // Spec section 3 run-attempt terminal statuses.
+function expandHome(value) {
+  return value.startsWith("~") ? value.replace("~", process.env.HOME || "") : value;
+}
+
 function terminalStatusFor(error) {
   if (error?.code === "canceled_by_reconciliation") return "CanceledByReconciliation";
   if (error?.code === "turn_timeout") return "TimedOut";
@@ -395,11 +400,19 @@ export class Orchestrator {
       if (!issue.workspace_path) continue;
       // Symphony's own runs have their own lifecycle; do not move them underneath it.
       if (this.claims.has(issue.id)) continue;
-      // Only states the watcher owns. A card parked in Archive or Canceled stays put.
-      if (!managedKeys.has(normalizeState(issue.state))) continue;
-
       const live = sessionsForPath(sessions, issue.workspace_path)
         .filter((session) => !isStale(session, settings.stale_after_hours));
+
+      // A card parked outside the watched columns normally stays put -- except when work
+      // starts in its folder again, which is the card saying it is no longer finished.
+      if (!managedKeys.has(normalizeState(issue.state))) {
+        if (live.length && settings.revive_from_terminal) {
+          await this.applySessionState(issue, settings.states.working, "session_resumed");
+          stillWatched.add(issue.id);
+          this.externalWatch.set(issue.id, { seen: true, empty: 0 });
+        }
+        continue;
+      }
       const entry = this.externalWatch.get(issue.id) || { seen: false, empty: 0 };
 
       if (live.length) {
@@ -429,6 +442,7 @@ export class Orchestrator {
       if (!stillWatched.has(issueId)) this.externalWatch.delete(issueId);
     }
 
+    if (settings.autodiscover) await this.discoverFolders(sessions, issues, settings);
     await this.alertOnStaleQuestions(await this.tracker.readIssues());
   }
 
@@ -452,6 +466,46 @@ export class Orchestrator {
         message: `${issue.title} — the session is waiting on an answer`
       });
     }
+  }
+
+  // Work started somewhere the board does not know about yet. The folder is the task, so
+  // the board adds the card rather than waiting to be told.
+  async discoverFolders(sessions, issues, settings) {
+    const known = new Set(issues.map((issue) => issue.workspace_path).filter(Boolean).map((p) => path.resolve(p)));
+    const roots = settings.autodiscover_roots.map((root) => path.resolve(expandHome(root)));
+    const seen = new Set();
+
+    for (const session of sessions) {
+      if (isStale(session, settings.stale_after_hours)) continue;
+      const folder = await this.projectRootOf(session.cwd);
+      if (!folder || seen.has(folder) || known.has(folder)) continue;
+      if (roots.length && !roots.some((root) => folder === root || folder.startsWith(`${root}${path.sep}`))) continue;
+      seen.add(folder);
+
+      try {
+        const created = await this.tracker.createIssue({
+          title: path.basename(folder),
+          description: `Found by Symphony: a ${session.name} session was running here.`,
+          state: settings.states.working || "In Progress",
+          labels: this.config.tracker.required_labels,
+          agent: session.name,
+          workspace_path: folder,
+          dispatchable: false
+        });
+        this.logger.event("info", "folder_discovered", {
+          issue_id: created.id, identifier: created.identifier, path: folder, agent: session.name
+        });
+      } catch (error) {
+        this.logger.event("warn", "folder_discovery_failed", { path: folder, error: error.message });
+      }
+    }
+  }
+
+  // A session may sit in a subdirectory; the repository root is the task.
+  async projectRootOf(cwd) {
+    if (!cwd) return null;
+    const state = await inspect(cwd).catch(() => null);
+    return state?.git ? path.resolve(state.top) : path.resolve(cwd);
   }
 
   async applySessionState(issue, target, reason) {

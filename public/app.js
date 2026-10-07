@@ -11,6 +11,8 @@ let deleteArmedId = null;
 let archiveOpen = false;
 const openEvidence = new Set();
 const replyDrafts = new Map();
+let usage = null;
+let usageOpen = false;
 
 const THEMES = ["apple", "pink", "blue"];
 const THEME_KEY = "symphony.theme";
@@ -27,6 +29,10 @@ el("themes").addEventListener("click", (event) => {
 });
 
 el("refreshButton").addEventListener("click", () => refresh());
+el("usageToggle").addEventListener("click", () => {
+  usageOpen = !usageOpen;
+  renderUsage();
+});
 el("pollButton").addEventListener("click", async () => {
   await send("/api/poll", "POST");
   await refresh();
@@ -69,6 +75,7 @@ async function refresh() {
   if (document.activeElement?.closest?.("[data-reply-form]")) return;
   if (deleteArmedId && !issues.some((issue) => issue.id === deleteArmedId)) deleteArmedId = null;
 
+  refreshUsage();
   renderMetrics();
   el("freezeNotice").hidden = !editingId;
   if (!editingId) renderBoard();
@@ -265,6 +272,69 @@ async function onBoardSubmit(event) {
   editingId = null;
   el("freezeNotice").hidden = true;
   await refresh();
+}
+
+// What is left before the next wall, as one ring: the tightest limit across every AI,
+// because that is the one that stops you first. The detail is a click away.
+async function refreshUsage() {
+  try {
+    const next = await fetchJson("/api/usage");
+    if (!next.enabled) return;
+    usage = next;
+  } catch {
+    return; // usage is a side panel; never let it break the board
+  }
+  renderUsage();
+}
+
+function renderUsage() {
+  const toggle = el("usageToggle");
+  const panel = el("usagePanel");
+  if (!usage || !usage.sources.length) {
+    toggle.hidden = true;
+    panel.hidden = true;
+    return;
+  }
+
+  const percent = usage.remaining_percent;
+  toggle.hidden = false;
+  toggle.setAttribute("aria-expanded", String(usageOpen));
+  toggle.title = `${percent ?? "?"}% left — click for the breakdown`;
+  el("usageValue").textContent = percent === null ? "--" : `${Math.round(percent)}%`;
+
+  const ring = toggle.querySelector(".gauge-fill");
+  const circumference = 2 * Math.PI * 15.5;
+  const filled = Math.max(0, Math.min(100, percent ?? 0)) / 100;
+  ring.style.strokeDasharray = `${circumference}`;
+  ring.style.strokeDashoffset = `${circumference * (1 - filled)}`;
+  toggle.dataset.level = percent === null ? "unknown" : percent <= 15 ? "low" : percent <= 40 ? "warn" : "ok";
+
+  panel.hidden = !usageOpen;
+  if (!usageOpen) return;
+  panel.innerHTML = usage.sources.map(usageCard).join("");
+}
+
+function usageCard(source) {
+  const rows = source.windows.map((w) => {
+    const value = w.remaining_percent !== undefined
+      ? `${w.remaining_percent}% left`
+      : `$${w.spend_usd}${w.budget_usd ? ` / $${w.budget_usd}` : ""}`;
+    const used = w.used_percent !== undefined ? ` · used ${w.used_percent}%` : "";
+    const resets = w.resets_at ? ` · resets ${new Date(w.resets_at).toLocaleString()}` : "";
+    return `<li><span>${escapeHtml(w.label)}</span><strong>${escapeHtml(value)}</strong><em>${escapeHtml(used + resets)}</em></li>`;
+  }).join("");
+
+  return `
+    <article class="usage-source" data-kind="${escapeAttr(source.kind)}">
+      <header>
+        <h3>${escapeHtml(source.label)}</h3>
+        <span>${source.remaining_percent === null ? "no limit reported" : `${source.remaining_percent}% left`}${source.plan ? ` · ${escapeHtml(source.plan)}` : ""}</span>
+      </header>
+      <ul>${rows}</ul>
+      ${source.measured_at ? `<p class="meta">measured ${escapeHtml(relativeTime(source.measured_at))}</p>` : ""}
+      ${source.note ? `<p class="meta">${escapeHtml(source.note)}</p>` : ""}
+    </article>
+  `;
 }
 
 function renderMetrics() {

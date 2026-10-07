@@ -94,8 +94,24 @@ test("a session that ends moves the task to done, after settling", async () => {
   assert.equal(await stateOf(orchestrator), "Done");
 });
 
-test("a card parked in a state the watcher does not own is left alone", async () => {
+test("an archived card whose folder starts working again comes back", async () => {
   const { orchestrator, project } = await harness("Archive");
+  orchestrator.scanSessions = async () => session(project, "working");
+  await orchestrator.watchExternalSessions();
+  assert.equal(await stateOf(orchestrator), "In Progress",
+    "work restarting in the folder means the card is not finished after all");
+});
+
+test("an archived card with nothing running stays archived", async () => {
+  const { orchestrator } = await harness("Archive");
+  orchestrator.scanSessions = async () => [];
+  orchestrator.lookupHistory = async () => ({ at: new Date().toISOString(), phase: "idle" });
+  for (let i = 0; i < 4; i += 1) await orchestrator.watchExternalSessions();
+  assert.equal(await stateOf(orchestrator), "Archive", "the watcher does not sweep finished work back out");
+});
+
+test("reviving can be turned off", async () => {
+  const { orchestrator, project } = await harness("Archive", { revive_from_terminal: false });
   orchestrator.scanSessions = async () => session(project, "working");
   await orchestrator.watchExternalSessions();
   assert.equal(await stateOf(orchestrator), "Archive");
