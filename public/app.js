@@ -29,7 +29,8 @@ el("themes").addEventListener("click", (event) => {
 });
 
 el("refreshButton").addEventListener("click", () => refresh());
-el("usageToggle").addEventListener("click", () => {
+el("usageGauges").addEventListener("click", (event) => {
+  if (!event.target.closest(".gauge")) return;
   usageOpen = !usageOpen;
   renderUsage();
 });
@@ -288,30 +289,41 @@ async function refreshUsage() {
 }
 
 function renderUsage() {
-  const toggle = el("usageToggle");
+  const gauges = el("usageGauges");
   const panel = el("usagePanel");
   if (!usage || !usage.sources.length) {
-    toggle.hidden = true;
+    gauges.hidden = true;
     panel.hidden = true;
     return;
   }
 
-  const percent = usage.remaining_percent;
-  toggle.hidden = false;
-  toggle.setAttribute("aria-expanded", String(usageOpen));
-  toggle.title = `${percent ?? "?"}% left — click for the breakdown`;
-  el("usageValue").textContent = percent === null ? "--" : `${Math.round(percent)}%`;
-
-  const ring = toggle.querySelector(".gauge-fill");
-  const circumference = 2 * Math.PI * 15.5;
-  const filled = Math.max(0, Math.min(100, percent ?? 0)) / 100;
-  ring.style.strokeDasharray = `${circumference}`;
-  ring.style.strokeDashoffset = `${circumference * (1 - filled)}`;
-  toggle.dataset.level = percent === null ? "unknown" : percent <= 15 ? "low" : percent <= 40 ? "warn" : "ok";
+  gauges.hidden = false;
+  gauges.innerHTML = usage.sources.map(gauge).join("");
+  gauges.setAttribute("aria-expanded", String(usageOpen));
 
   panel.hidden = !usageOpen;
-  if (!usageOpen) return;
-  panel.innerHTML = usage.sources.map(usageCard).join("");
+  panel.innerHTML = usageOpen ? usage.sources.map(usageCard).join("") : "";
+}
+
+// One ring per API, so a single tight limit cannot hide behind a healthy average.
+function gauge(source) {
+  const percent = source.remaining_percent;
+  const radius = 15.5;
+  const circumference = 2 * Math.PI * radius;
+  const filled = Math.max(0, Math.min(100, percent ?? 0)) / 100;
+  const level = percent === null ? "unknown" : percent <= 15 ? "low" : percent <= 40 ? "warn" : "ok";
+
+  return `
+    <button type="button" class="gauge" data-level="${level}" title="${escapeAttr(source.label)} — ${percent === null ? "no limit reported" : percent + "% left"}. Click for the breakdown.">
+      <svg viewBox="0 0 36 36" aria-hidden="true">
+        <circle class="gauge-track" cx="18" cy="18" r="${radius}"></circle>
+        <circle class="gauge-fill" cx="18" cy="18" r="${radius}"
+          style="stroke-dasharray:${circumference};stroke-dashoffset:${circumference * (1 - filled)}"></circle>
+      </svg>
+      <span class="gauge-value">${percent === null ? "--" : Math.round(percent) + "%"}</span>
+      <span class="gauge-label">${escapeHtml(source.label)}</span>
+    </button>
+  `;
 }
 
 function usageCard(source) {
@@ -319,7 +331,7 @@ function usageCard(source) {
     const value = w.remaining_percent !== undefined
       ? `${w.remaining_percent}% left`
       : `$${w.spend_usd}${w.budget_usd ? ` / $${w.budget_usd}` : ""}`;
-    const used = w.used_percent !== undefined ? ` · used ${w.used_percent}%` : "";
+    const used = w.expired ? " · window reset" : w.used_percent !== undefined ? ` · used ${w.used_percent}%` : "";
     const resets = w.resets_at ? ` · resets ${new Date(w.resets_at).toLocaleString()}` : "";
     return `<li><span>${escapeHtml(w.label)}</span><strong>${escapeHtml(value)}</strong><em>${escapeHtml(used + resets)}</em></li>`;
   }).join("");

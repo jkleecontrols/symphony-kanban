@@ -44,14 +44,7 @@ async function codexLimits() {
   for (const [key, label] of [["primary", "Session"], ["secondary", "Weekly"]]) {
     const w = limits[key];
     if (!w || !Number.isFinite(w.used_percent)) continue;
-    windows.push({
-      key,
-      label: w.window_minutes ? windowLabel(w.window_minutes) : label,
-      used_percent: round(w.used_percent),
-      remaining_percent: round(100 - w.used_percent),
-      window_minutes: w.window_minutes ?? null,
-      resets_at: w.resets_at ? new Date(w.resets_at * 1000).toISOString() : null
-    });
+    windows.push(rolloverWindow(key, label, w));
   }
   if (!windows.length) return null;
 
@@ -66,6 +59,39 @@ async function codexLimits() {
     tokens: Number.isFinite(usage.total_tokens) ? usage.total_tokens : null,
     measured_at: payload.__at || null,
     note: null
+  };
+}
+
+// These numbers are a snapshot from the last session. If its window has since elapsed the
+// allowance is back, so reporting the old figure would under-report what is available --
+// and the reset time itself has to roll forward to the next one.
+function rolloverWindow(key, label, w) {
+  const minutes = Number.isFinite(w.window_minutes) ? w.window_minutes : null;
+  let resetsAt = Number.isFinite(w.resets_at) ? w.resets_at * 1000 : null;
+  let used = w.used_percent;
+  let expired = false;
+
+  if (resetsAt && resetsAt <= Date.now()) {
+    expired = true;
+    used = 0;
+    if (minutes) {
+      const period = minutes * 60000;
+      // Walk forward whole windows rather than guessing a single one.
+      const steps = Math.ceil((Date.now() - resetsAt) / period);
+      resetsAt += steps * period;
+    } else {
+      resetsAt = null;
+    }
+  }
+
+  return {
+    key,
+    label: minutes ? windowLabel(minutes) : label,
+    used_percent: round(used),
+    remaining_percent: round(100 - used),
+    window_minutes: minutes,
+    resets_at: resetsAt ? new Date(resetsAt).toISOString() : null,
+    expired
   };
 }
 

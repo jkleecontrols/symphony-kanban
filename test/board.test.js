@@ -14,7 +14,10 @@ test("every function the board calls is defined in the board", async () => {
   const source = await fs.readFile(path.join(root, "public", "app.js"), "utf8");
 
   const defined = new Set([...source.matchAll(/^(?:async )?function ([A-Za-z_$][\w$]*)/gm)].map((m) => m[1]));
-  for (const match of source.matchAll(/^const ([A-Za-z_$][\w$]*) = (?:async )?\(/gm)) defined.add(match[1]);
+  // Arrow functions too, including ones declared inside another function.
+  for (const match of source.matchAll(/^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(/gm)) {
+    defined.add(match[1]);
+  }
 
   const builtins = new Set([
     "encodeURIComponent", "decodeURIComponent", "String", "Number", "Boolean", "Object",
@@ -23,9 +26,17 @@ test("every function the board calls is defined in the board", async () => {
   ]);
 
   const missing = new Set();
-  for (const match of source.matchAll(/\$\{\s*([A-Za-z_$][\w$]*)\(/g)) {
-    const name = match[1];
+  const consider = (name) => {
     if (!defined.has(name) && !builtins.has(name)) missing.add(name);
+  };
+
+  // Called inside a template: ${helper(...)}
+  for (const match of source.matchAll(/\$\{\s*([A-Za-z_$][\w$]*)\(/g)) consider(match[1]);
+
+  // Passed by name instead: .map(helper), .filter(helper), .forEach(helper), .sort(helper).
+  // usageCard went missing this way and the first version of this test did not notice.
+  for (const match of source.matchAll(/\.(?:map|filter|forEach|sort|find|some|every|flatMap)\(\s*([A-Za-z_$][\w$]*)\s*\)/g)) {
+    consider(match[1]);
   }
 
   assert.deepEqual([...missing], [], "these are interpolated into the board's HTML but never defined");

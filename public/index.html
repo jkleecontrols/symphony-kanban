@@ -22,13 +22,7 @@
         <button id="pollButton" type="button">Poll Now</button>
         <button id="refreshButton" type="button">Refresh</button>
       </div>
-      <button id="usageToggle" class="gauge" type="button" hidden aria-expanded="false">
-        <svg viewBox="0 0 36 36" aria-hidden="true">
-          <circle class="gauge-track" cx="18" cy="18" r="15.5"></circle>
-          <circle class="gauge-fill" cx="18" cy="18" r="15.5"></circle>
-        </svg>
-        <span class="gauge-value" id="usageValue">--</span>
-      </button>
+      <div class="gauges" id="usageGauges" hidden></div>
     </header>
 
     <div id="banner" class="banner" hidden></div>

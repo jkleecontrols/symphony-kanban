@@ -854,3 +854,25 @@ pre,
   font-size: 11px;
   color: var(--muted);
 }
+
+/* --- a ring per API --- */
+.gauges {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gauge .gauge-label {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 1px;
+  font-size: 9px;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.gauge { margin-bottom: 11px; }
+.gauge:hover .gauge-value { color: var(--accent); }
