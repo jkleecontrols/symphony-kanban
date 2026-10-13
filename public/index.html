@@ -21,6 +21,7 @@
         <button id="composerToggle" type="button" class="primary">+ New Task</button>
         <button id="pollButton" type="button">Poll Now</button>
         <button id="activityToggle" type="button" aria-expanded="false">Activity</button>
+        <button id="viewToggle" type="button" aria-pressed="false">Graph</button>
         <select id="projectFilter" title="Show one project"></select>
         <button id="refreshButton" type="button">Refresh</button>
       </div>
@@ -92,6 +93,7 @@
       <section class="metrics" id="metrics"></section>
       <div id="freezeNotice" class="freeze-notice" hidden>Board auto-refresh is paused while you edit a card.</div>
       <section class="board" id="board"></section>
+      <section class="graph" id="graph" aria-label="Project graph" hidden></section>
 
       <section class="lower">
         <article>

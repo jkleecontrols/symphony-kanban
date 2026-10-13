@@ -1,3 +1,5 @@
+import { createGraph } from "./graph.js";
+
 const OTHER_COLUMN = "(Other)";
 const ARCHIVE_STATE = "archive";
 
@@ -17,6 +19,7 @@ let projectFilter = "";
 let activity = null;
 let activityOpen = false;
 let activityTab = "all";
+let graphOpen = false;
 
 const THEMES = ["apple", "pink", "blue"];
 const THEME_KEY = "symphony.theme";
@@ -25,6 +28,34 @@ const el = (id) => document.getElementById(id);
 const boardEl = el("board");
 const composerEl = el("composer");
 const composerForm = el("composerForm");
+const graph = createGraph(el("graph"), {
+  onConnect: async (sourceId, targetId) => {
+    const target = issues.find((issue) => issue.id === targetId);
+    if (!target || target.blocked_by.some((blocker) => blocker.id === sourceId)) return;
+    await send(`/api/issues/${encodeURIComponent(targetId)}`, "PATCH", {
+      blocked_by: [...target.blocked_by.map((blocker) => blocker.id).filter(Boolean), sourceId]
+    });
+    clearBanner();
+    await refresh();
+  },
+  onRemove: async (sourceId, targetId) => {
+    const target = issues.find((issue) => issue.id === targetId);
+    if (!target) return;
+    await send(`/api/issues/${encodeURIComponent(targetId)}`, "PATCH", {
+      blocked_by: target.blocked_by.map((blocker) => blocker.id).filter((id) => id && id !== sourceId)
+    });
+    clearBanner();
+    await refresh();
+  },
+  onThreadDrop: async (issueId, thread, project) => {
+    const issue = issues.find((item) => item.id === issueId);
+    if (!issue || issue.thread === thread && issue.project === project) return;
+    await send(`/api/issues/${encodeURIComponent(issueId)}`, "PATCH", { thread, project: project || null });
+    clearBanner();
+    await refresh();
+  },
+  onError: (error) => showBanner(`Could not update the graph: ${error.message}`)
+});
 
 applyTheme(storedTheme() || "apple");
 el("themes").addEventListener("click", (event) => {
@@ -47,7 +78,16 @@ el("activityPanel").addEventListener("click", (event) => {
 
 el("projectFilter").addEventListener("change", (event) => {
   projectFilter = event.target.value;
-  renderBoard();
+  renderView();
+});
+
+el("viewToggle").addEventListener("click", () => {
+  graphOpen = !graphOpen;
+  el("viewToggle").textContent = graphOpen ? "Board" : "Graph";
+  el("viewToggle").setAttribute("aria-pressed", String(graphOpen));
+  el("board").hidden = graphOpen;
+  el("graph").hidden = !graphOpen;
+  renderView();
 });
 
 el("refreshButton").addEventListener("click", () => refresh());
@@ -102,7 +142,7 @@ async function refresh() {
   if (activityOpen) refreshActivity();
   renderMetrics();
   el("freezeNotice").hidden = !editingId;
-  if (!editingId) renderBoard();
+  if (!editingId) renderView();
   renderRuntime();
   renderLogs();
 }
@@ -479,6 +519,14 @@ function renderBoard() {
     `;
   }).join("");
   boardEl.style.setProperty("--columns", String(columns.length));
+}
+
+function renderView() {
+  renderProjectFilter();
+  if (!graphOpen) return renderBoard();
+  const liveIds = new Set(snapshot.claims.map((claim) => claim.issue_id));
+  for (const issue of issues) if (sessionsFor(issue).length) liveIds.add(issue.id);
+  graph.render(issues, { project: projectFilter, liveIds });
 }
 
 function archiveSection(archived, draw) {

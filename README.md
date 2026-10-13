@@ -166,6 +166,17 @@ answer is visible without opening anything.
 structured log, and the issues they belong to. The board says where each card stands; this
 says what moved while you were away.
 
+## Graph
+
+`Graph` in the top bar switches the board to a project → thread → card map. The project
+filter applies to both views. Each card shows its state, assigned AI and branch; a green
+dot means a session is live in that folder.
+
+Drag the dot on the right of card A to card B to draw A → B. That arrow means B depends on
+A: B's `blocked_by` list is saved, and auto-dispatch waits until A reaches a terminal
+state. Click an arrow to remove it. The API rejects a dependency on the same card, an
+unknown card, or a cycle. Drag a card onto a thread to assign it to that thread.
+
 ## Proof of work
 
 The point of a board is to review finished work rather than supervise it being done, and
@@ -351,6 +362,8 @@ Alongside them, the spec's operator surface:
 | `POST /api/v1/refresh` | run a poll and reconciliation immediately |
 
 Every error is the spec envelope, `{"error":{"code":"...","message":"..."}}`.
+To edit dependencies through PATCH, send `{"blocked_by":["local-1","local-2"]}` with
+the blocker ids. An empty array clears them.
 
 ## Reconciliation
 

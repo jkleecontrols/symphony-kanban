@@ -71,6 +71,8 @@
   box-sizing: border-box;
 }
 
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -325,6 +327,40 @@ label.check input {
   overflow-x: auto;
   padding-bottom: 8px;
 }
+
+/* Project → thread → card, with editable dependency arrows. */
+.graph {
+  overflow: auto;
+  min-height: 420px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.graph svg { display: block; min-width: 1130px; font-family: var(--font); }
+.graph-empty { padding: 28px; color: var(--muted); }
+.graph-help { padding: 12px 18px 0; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.graph-hierarchy path { fill: none; stroke: var(--line); stroke-width: 2; }
+.graph-node rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+.graph-project rect { fill: var(--accent-soft); stroke: var(--accent); }
+.graph-thread rect { fill: var(--raised); stroke: var(--accent-2); }
+.graph-node text { fill: var(--ink); font-size: 14px; font-weight: 600; pointer-events: none; }
+.graph-card { cursor: grab; touch-action: none; }
+.graph-thread { cursor: default; }
+.graph-card rect:hover, .graph-thread rect:hover { stroke-width: 2.5; }
+.graph-card-meta { fill: var(--muted) !important; font-size: 11px !important; font-weight: 400 !important; }
+.graph-card circle:not(.graph-handle) { fill: var(--muted); }
+.graph-card .graph-live, .graph-card .graph-state-in-progress { fill: var(--ok) !important; }
+.graph-card .graph-state-human-review { fill: var(--warn) !important; }
+.graph-card .graph-state-done, .graph-card .graph-state-archive { fill: var(--accent) !important; }
+.graph-card .graph-state-canceled { fill: var(--bad) !important; }
+.graph-handle { fill: var(--accent); stroke: var(--surface); stroke-width: 2; cursor: crosshair; }
+.graph-arrowhead { fill: var(--accent-2); }
+.graph-dependency { fill: none; stroke: var(--accent-2); stroke-width: 2.5; pointer-events: none; }
+.graph-dependency-hit { fill: none; stroke: transparent; stroke-width: 16; cursor: pointer; }
+.graph-dependency-hit:hover, .graph-dependency-hit:focus { stroke: color-mix(in srgb, var(--accent-2) 25%, transparent); outline: none; }
+.graph-preview { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 6 5; pointer-events: none; }
 
 .column {
   min-height: 300px;

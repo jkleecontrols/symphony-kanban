@@ -82,7 +82,7 @@ export function createServer(orchestrator, logger) {
         }
 
         if (req.method === "PATCH") {
-          const patch = await buildPatch(orchestrator, await readJson(req));
+          const patch = await buildPatch(orchestrator, await readJson(req), id);
           const updated = await orchestrator.tracker.updateIssue(id, patch);
           if (!updated) return fail(res, 404, "issue_not_found", `unknown issue: ${id}`);
           logger.event("info", "issue_updated", { issue_id: id, identifier: updated.identifier, fields: Object.keys(patch) });
@@ -338,7 +338,7 @@ async function createIssue(orchestrator, body) {
   });
 }
 
-async function buildPatch(orchestrator, body) {
+async function buildPatch(orchestrator, body, issueId) {
   const config = orchestrator.config;
   const known = boardConfig(orchestrator);
   const patch = {};
@@ -356,6 +356,26 @@ async function buildPatch(orchestrator, body) {
     patch.labels = uniqueLowerLabels([...body.labels, ...config.tracker.required_labels]);
   }
   if ("agent" in body) patch.agent = resolveRequestedAgent(body.agent, config);
+  if ("blocked_by" in body) {
+    if (!Array.isArray(body.blocked_by)) throw invalid("blocked_by must be an array of issue ids");
+    const issues = await orchestrator.tracker.readIssues();
+    const byId = new Map(issues.map((issue) => [issue.id, issue]));
+    if (!byId.has(issueId)) throw invalid("issue does not exist");
+    const ids = [...new Set(body.blocked_by)];
+    if (ids.some((id) => typeof id !== "string" || !byId.has(id))) throw invalid("blocked_by contains an unknown issue id");
+    if (ids.includes(issueId)) throw invalid("an issue cannot depend on itself");
+    const reaches = (id, seen = new Set()) => {
+      if (id === issueId) return true;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return (byId.get(id)?.blocked_by || []).some((blocker) => blocker.id && reaches(blocker.id, seen));
+    };
+    if (ids.some((id) => reaches(id))) throw invalid("dependency would create a cycle");
+    patch.blocked_by = ids.map((id) => {
+      const blocker = byId.get(id);
+      return { id, identifier: blocker.identifier, state: blocker.state };
+    });
+  }
   for (const field of ["project", "role", "thread", "branch_name"]) {
     if (field in body) {
       const value = body[field] == null ? "" : String(body[field]).trim();
