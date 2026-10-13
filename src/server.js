@@ -9,6 +9,7 @@ import { canReplyTo, sendReply } from "./reply.js";
 import { runVerification } from "./verify.js";
 import { openOrRaise } from "./terminal.js";
 import { collectUsage } from "./usage.js";
+import { buildActivity } from "./activity.js";
 import { isStale } from "./sessions.js";
 import { readActivity } from "./transcripts.js";
 
@@ -35,6 +36,10 @@ export function createServer(orchestrator, logger) {
         if (!orchestrator.config.usage.enabled) return json(res, { enabled: false, sources: [] });
         const force = url.searchParams.get("refresh") === "1";
         return json(res, { enabled: true, ...await collectUsage(orchestrator.config, { force }) });
+      }
+      if (url.pathname === "/api/activity") {
+        const limit = Math.min(Number(url.searchParams.get("limit")) || 60, 200);
+        return json(res, await buildActivity(orchestrator, { limit }));
       }
       if (url.pathname === "/api/config") return json(res, boardConfig(orchestrator));
       if (url.pathname === "/api/suggest-verify") {

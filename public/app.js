@@ -14,6 +14,9 @@ const replyDrafts = new Map();
 let usage = null;
 let usageOpen = false;
 let projectFilter = "";
+let activity = null;
+let activityOpen = false;
+let activityTab = "all";
 
 const THEMES = ["apple", "pink", "blue"];
 const THEME_KEY = "symphony.theme";
@@ -27,6 +30,19 @@ applyTheme(storedTheme() || "apple");
 el("themes").addEventListener("click", (event) => {
   const pick = event.target.closest("[data-theme-pick]");
   if (pick) applyTheme(pick.dataset.themePick);
+});
+
+el("activityToggle").addEventListener("click", () => {
+  activityOpen = !activityOpen;
+  if (activityOpen) refreshActivity();
+  else renderActivity();
+});
+
+el("activityPanel").addEventListener("click", (event) => {
+  const tab = event.target.closest("[data-activity-tab]");
+  if (!tab) return;
+  activityTab = tab.dataset.activityTab;
+  renderActivity();
 });
 
 el("projectFilter").addEventListener("change", (event) => {
@@ -83,6 +99,7 @@ async function refresh() {
   if (deleteArmedId && !issues.some((issue) => issue.id === deleteArmedId)) deleteArmedId = null;
 
   refreshUsage();
+  if (activityOpen) refreshActivity();
   renderMetrics();
   el("freezeNotice").hidden = !editingId;
   if (!editingId) renderBoard();
@@ -356,6 +373,62 @@ function usageCard(source) {
       ${source.measured_at ? `<p class="meta">measured ${escapeHtml(relativeTime(source.measured_at))}</p>` : ""}
       ${source.note ? `<p class="meta">${escapeHtml(source.note)}</p>` : ""}
     </article>
+  `;
+}
+
+// What just happened, across every project, newest first. The board says where each card
+// stands; this says what moved while you were away.
+async function refreshActivity() {
+  try {
+    activity = await fetchJson("/api/activity");
+  } catch {
+    return;
+  }
+  renderActivity();
+}
+
+function renderActivity() {
+  const panel = el("activityPanel");
+  const toggle = el("activityToggle");
+  toggle.setAttribute("aria-expanded", String(activityOpen));
+  const waiting = activity?.counts?.attention || 0;
+  toggle.textContent = waiting ? `Activity · ${waiting}` : "Activity";
+  toggle.classList.toggle("has-attention", waiting > 0);
+
+  panel.hidden = !activityOpen;
+  if (!activityOpen || !activity) return;
+
+  const shown = activity.entries.filter((e) => {
+    if (activityTab === "live") return e.live;
+    if (activityTab === "attention") return e.attention;
+    return true;
+  });
+
+  const tab = (key, text) => `<button type="button" data-activity-tab="${key}"${activityTab === key ? ' class="on"' : ""}>${escapeHtml(text)}</button>`;
+  panel.innerHTML = `
+    <div class="activity-tabs">
+      ${tab("all", `All ${activity.counts.total}`)}
+      ${tab("live", `Running ${activity.counts.live}`)}
+      ${tab("attention", `Needs you ${activity.counts.attention}`)}
+    </div>
+    <ul class="activity-list">
+      ${shown.map(activityRow).join("") || "<li class=\"meta\">Nothing here.</li>"}
+    </ul>
+  `;
+}
+
+function activityRow(entry) {
+  const where = [entry.issue.project, entry.issue.thread].filter(Boolean).join(" / ");
+  return `
+    <li class="${entry.live ? "live" : ""}${entry.attention ? " attention" : ""}">
+      <span class="activity-where">${escapeHtml(where || "—")}</span>
+      <span class="activity-what">
+        ${entry.issue.identifier ? `<strong>${escapeHtml(entry.issue.identifier)}</strong> ` : ""}
+        ${escapeHtml(entry.issue.title || "")}
+      </span>
+      <span class="activity-say">${escapeHtml(entry.headline)}${entry.detail ? ` — ${escapeHtml(entry.detail)}` : ""}</span>
+      <span class="activity-when">${escapeHtml(relativeTime(entry.at))}</span>
+    </li>
   `;
 }
 

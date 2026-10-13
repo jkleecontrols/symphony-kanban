@@ -155,6 +155,17 @@ happening when a terminal was simply never closed, so a session quiet for longer
 longer blocks dispatch. It is still listed with its idle time so you can see what is worth
 closing. Nothing is killed for you.
 
+## Activity
+
+`Activity` in the top bar opens a feed of what has happened across every project, newest
+first, with running sessions pinned to the top. Three tabs: everything, what is running,
+and what needs you. The button carries the count of the last, so a card waiting on an
+answer is visible without opening anything.
+
+`GET /api/activity` merges three sources that already existed: the live sessions, the
+structured log, and the issues they belong to. The board says where each card stands; this
+says what moved while you were away.
+
 ## Proof of work
 
 The point of a board is to review finished work rather than supervise it being done, and

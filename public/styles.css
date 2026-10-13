@@ -911,3 +911,77 @@ pre,
   color: var(--accent);
   font-size: 11px;
 }
+
+/* --- activity: what just happened, across every project --- */
+#activityToggle.has-attention {
+  border-color: var(--warn);
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.activity {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  box-shadow: var(--shadow-card);
+}
+
+.activity-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.activity-tabs button {
+  height: 28px;
+  padding: 0 11px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.activity-tabs button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.activity-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 340px;
+  overflow: auto;
+}
+
+.activity-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.activity-list li:first-child { border-top: 0; }
+.activity-list li.live { background: color-mix(in srgb, var(--ok) 5%, transparent); }
+.activity-list li.attention .activity-say { color: var(--warn); }
+
+.activity-where {
+  grid-column: 1;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.activity-when {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.activity-what { grid-column: 1; }
+.activity-say { grid-column: 1; color: var(--muted); }
