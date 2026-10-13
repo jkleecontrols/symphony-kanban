@@ -18,7 +18,7 @@ under `Projects/`, and finished runs append a line to each project's note.
 
 ## Latest (2026-10-13)
 
-The owner writes in Korean; reply in Korean and keep it short. Ask before any `git push`.
+The owner writes in Korean; reply in Korean and keep it short. Push completed work often.
 
 The Claude per-turn usage fix was committed as `401edc8`. It replaced the old
 session-start-date accounting, which showed $0.03 on a roughly $22 day. The estimate
@@ -36,6 +36,9 @@ The board now keeps four columns: Ready, In Progress, Human Review, Archive. Ses
 land in Archive; after two quiet days they move to a collapsed Done drawer. Canceled is a
 second drawer there. The existing local Done and Archive states were exchanged so the
 same cards stay visible or hidden as before.
+
+Card and graph AI labels now follow the active session in the folder, so a Codex session
+shows Codex even when the saved automatic-dispatch agent is Claude.
 
 Further changes to `src/usage.js`, `src/transcripts.js`, `scripts/claude-limits.js`,
 `WORKFLOW.md`, `.gitignore`, and the usage and transcript tests:

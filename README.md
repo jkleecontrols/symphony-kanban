@@ -10,7 +10,7 @@ It is an independent implementation of the [OpenAI Symphony](https://github.com/
 service specification (`SPEC.md` in that repository), not a port of its Elixir reference.
 Where it departs from the spec, and why, is at the end of this file.
 
-![The board: five columns, a card per project folder, with live session indicators and the result of each finished run](docs/board.jpg)
+![The board: a card per project folder, with live session indicators and the result of each finished run](docs/board.jpg)
 
 ## What it does
 
@@ -144,6 +144,10 @@ thing the assistant said and asks whether it ends in a question. That heuristic 
 Codex transcripts are matched to folders from their first `session_meta` record, even
 when that record is long. A turn stays In Progress until its log records completion;
 the latest assistant message or tool call supplies the card's activity line.
+
+The AI badge on a card shows the active session in that folder (including Codex), or the
+AI assigned to the card when no session is active. The AI selector sets the agent for the
+next automatic dispatch; it does not describe a session you started yourself.
 
 The watcher owns only those four columns, so a card parked in Done or Canceled stays
 put, and a task Symphony is running itself is left to its own lifecycle. Reaching Archive

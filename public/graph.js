@@ -36,7 +36,7 @@ function linkPath(from, to, lane) {
 export function createGraph(host, { onConnect, onRemove, onThreadDrop, onError }) {
   let drag = null;
 
-  function render(issues, { project = "", liveIds = new Set() } = {}) {
+  function render(issues, { project = "", liveIds = new Set(), agents = new Map() } = {}) {
     if (drag) return;
     const visible = project ? issues.filter((issue) => issue.project === project) : issues;
     const groups = new Map();
@@ -137,7 +137,7 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onError }
       node.append(svg("rect", { x: CARD_X, y: row.y - 29, width: CARD_W, height: 58, rx: 12 }));
       node.append(svg("circle", { cx: CARD_X + 15, cy: row.y - 12, r: 5, class: liveIds.has(issue.id) ? "graph-live" : `graph-state-${issue.state.toLowerCase().replace(/[^a-z]+/g, "-")}` }));
       node.append(svg("text", { x: CARD_X + 28, y: row.y - 8, class: "graph-card-title" }, short(issue.title, 28)));
-      node.append(svg("text", { x: CARD_X + 15, y: row.y + 14, class: "graph-card-meta" }, short([issue.identifier, issue.agent, issue.branch_name].filter(Boolean).join(" · "), 39)));
+      node.append(svg("text", { x: CARD_X + 15, y: row.y + 14, class: "graph-card-meta" }, short([issue.identifier, agents.get(issue.id) || issue.agent, issue.branch_name].filter(Boolean).join(" · "), 39)));
       node.append(svg("circle", { cx: CARD_X + CARD_W, cy: row.y, r: 10, class: "graph-handle", "data-handle": issue.id, role: "button", "aria-label": `Draw dependency from ${issue.title}` }));
       node.append(svg("title", {}, `${issue.title} — drag card to a thread, or drag the handle to another card`));
       canvas.append(node);

@@ -287,6 +287,7 @@ function boardConfig(orchestrator) {
     terminal_states: terminal,
     required_labels: config.tracker.required_labels,
     default_agent: config.agent.default_agent,
+    session_stale_after_hours: config.sessions.stale_after_hours,
     agents: Object.entries(config.agents).map(([name, definition]) => ({
       name,
       label: definition.label,

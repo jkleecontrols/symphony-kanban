@@ -1,9 +1,10 @@
 import { createGraph } from "./graph.js";
+import { currentAgent } from "./current-agent.js";
 
 const OTHER_COLUMN = "(Other)";
 const HIDDEN_STATES = new Set(["done", "canceled"]);
 
-let config = { states: [], active_states: [], terminal_states: [], agents: [], required_labels: [], default_agent: "" };
+let config = { states: [], active_states: [], terminal_states: [], agents: [], required_labels: [], default_agent: "", session_stale_after_hours: 12 };
 let snapshot = null;
 let issues = [];
 let logs = [];
@@ -528,8 +529,14 @@ function renderView() {
   renderProjectFilter();
   if (!graphOpen) return renderBoard();
   const liveIds = new Set(snapshot.claims.map((claim) => claim.issue_id));
-  for (const issue of issues) if (sessionsFor(issue).length) liveIds.add(issue.id);
-  graph.render(issues, { project: projectFilter, liveIds });
+  const claimByIssue = new Map(snapshot.claims.map((claim) => [claim.issue_id, claim]));
+  const agents = new Map();
+  for (const issue of issues) {
+    const sessions = sessionsFor(issue);
+    if (sessions.length) liveIds.add(issue.id);
+    agents.set(issue.id, currentAgent(issue, claimByIssue.get(issue.id), sessions));
+  }
+  graph.render(issues, { project: projectFilter, liveIds, agents });
 }
 
 function terminalDrawer(state, cards, draw) {
@@ -550,7 +557,7 @@ function card(issue, claim, failure, external = []) {
   if (!issue.dispatchable || issue.blocked_by.length) classes.push("blocked");
   if (failure) classes.push("failed");
 
-  const agentName = claim?.codex_live_session?.agent || issue.agent;
+  const agentName = currentAgent(issue, claim, external);
   const blockedBy = issue.blocked_by.map((blocker) => blocker.identifier || blocker.id).filter(Boolean);
 
   return `
@@ -582,7 +589,7 @@ function card(issue, claim, failure, external = []) {
         <select data-inline="state" data-issue-id="${escapeAttr(issue.id)}" title="State">
           ${config.states.map((state) => `<option value="${escapeAttr(state)}" ${lower(state) === lower(issue.state) ? "selected" : ""}>${escapeHtml(state)}</option>`).join("")}
         </select>
-        <select data-inline="agent" data-issue-id="${escapeAttr(issue.id)}" title="Assigned AI">
+        <select data-inline="agent" data-issue-id="${escapeAttr(issue.id)}" title="AI for automatic dispatch">
           <option value="">No AI</option>
           ${agentOptions().map((option) => `<option value="${escapeAttr(option.value)}" ${option.value === issue.agent ? "selected" : ""}>${escapeHtml(option.text)}</option>`).join("")}
         </select>
@@ -613,7 +620,7 @@ function editCard(issue) {
         <label><span>Check command</span><input name="verify_command" type="text" value="${escapeAttr(issue.verify_command || "")}" placeholder="npm test"></label>
         <label><span>Role</span><input name="role" type="text" value="${escapeAttr(issue.role || "")}" placeholder="experiment"></label>
         <label><span>Thread</span><input name="thread" type="text" value="${escapeAttr(issue.thread || "")}" placeholder="exposure model"></label>
-        <label><span>Assigned AI</span>
+        <label><span>AI for automatic dispatch</span>
           <select name="agent">
             <option value="">No AI</option>
             ${agentOptions().map((option) => `<option value="${escapeAttr(option.value)}" ${option.value === issue.agent ? "selected" : ""}>${escapeHtml(option.text)}</option>`).join("")}
@@ -647,7 +654,10 @@ function sessionsFor(issue) {
   const root = issue.workspace_path.replace(/\/+$/, "");
   return (snapshot.external_sessions || []).filter((session) => {
     const cwd = String(session.cwd || "");
-    return cwd === root || cwd.startsWith(`${root}/`);
+    const at = Date.parse(session.at || "");
+    const hours = config.session_stale_after_hours;
+    const stale = Number.isFinite(hours) && hours > 0 && Number.isFinite(at) && Date.now() - at > hours * 3600000;
+    return !stale && (cwd === root || cwd.startsWith(`${root}/`));
   });
 }
 
