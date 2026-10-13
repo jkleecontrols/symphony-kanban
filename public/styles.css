@@ -900,3 +900,14 @@ pre,
 }
 
 #projectFilter { max-width: 190px; }
+
+/* --- the question several cards share --- */
+.thread-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px dashed var(--accent);
+  color: var(--accent);
+  font-size: 11px;
+}

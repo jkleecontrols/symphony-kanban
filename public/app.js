@@ -109,6 +109,7 @@ async function onComposerSubmit(event) {
     workspace_path: form.workspace_path.value.trim() || null,
     verify_command: form.verify_command.value.trim() || null,
     role: form.role.value.trim() || null,
+    thread: form.thread.value.trim() || null,
     dispatchable: form.dispatchable.checked
   };
 
@@ -272,6 +273,7 @@ async function onBoardSubmit(event) {
       workspace_path: fields.workspace_path.value.trim() || null,
       verify_command: fields.verify_command.value.trim() || null,
       role: fields.role.value.trim() || null,
+      thread: fields.thread.value.trim() || null,
       dispatchable: fields.dispatchable.checked
     });
   } catch (error) {
@@ -432,6 +434,7 @@ function card(issue, claim, failure, external = []) {
         ${escapeHtml(issue.identifier)} · P${issue.priority ?? "-"}
         ${agentName ? `<span class="agent-badge">${escapeHtml(agentLabel(agentName))}</span>` : `<span class="agent-badge muted">no AI</span>`}
         ${issue.role ? `<span class="role-badge">${escapeHtml(issue.role)}</span>` : ""}
+        ${issue.thread ? `<span class="thread-badge">${escapeHtml(issue.thread)}</span>` : ""}
         ${claim || external.length ? '<span class="spinner" role="status" aria-label="session running"></span>' : ""}
       </div>
       <h3>${escapeHtml(issue.title)}</h3>
@@ -484,6 +487,7 @@ function editCard(issue) {
         <label><span>Project folder</span><input name="workspace_path" type="text" value="${escapeAttr(issue.workspace_path || "")}" placeholder="blank = managed workspace"></label>
         <label><span>Check command</span><input name="verify_command" type="text" value="${escapeAttr(issue.verify_command || "")}" placeholder="npm test"></label>
         <label><span>Role</span><input name="role" type="text" value="${escapeAttr(issue.role || "")}" placeholder="experiment"></label>
+        <label><span>Thread</span><input name="thread" type="text" value="${escapeAttr(issue.thread || "")}" placeholder="exposure model"></label>
         <label><span>Assigned AI</span>
           <select name="agent">
             <option value="">No AI</option>

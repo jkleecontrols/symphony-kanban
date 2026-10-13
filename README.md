@@ -80,6 +80,11 @@ narrows the board to one project.
 
 `role` is a free label — `experiment`, `review` — that says what a card is for.
 
+`thread` is the question several cards are chasing. A project is a repository; a thread is
+an open question inside it, and the worktrees exploring that question carry the same thread
+name. It is what keeps a second attempt tied to the first instead of looking like unrelated
+work.
+
 `blocked_by` decides the order. A review task listing the experiments it compares is not
 dispatched until each of them reaches a terminal state, which is how a comparison waits for
 the runs it compares without anyone watching the clock.

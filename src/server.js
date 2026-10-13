@@ -327,6 +327,7 @@ async function createIssue(orchestrator, body) {
     verify_command: body.verify_command == null || String(body.verify_command).trim() === "" ? null : String(body.verify_command).trim(),
     project: body.project == null || String(body.project).trim() === "" ? null : String(body.project).trim(),
     role: body.role == null || String(body.role).trim() === "" ? null : String(body.role).trim(),
+    thread: body.thread == null || String(body.thread).trim() === "" ? null : String(body.thread).trim(),
     branch_name: body.branch_name == null || String(body.branch_name).trim() === "" ? null : String(body.branch_name).trim(),
     dispatchable: body.dispatchable === undefined ? true : Boolean(body.dispatchable)
   });
@@ -350,7 +351,7 @@ async function buildPatch(orchestrator, body) {
     patch.labels = uniqueLowerLabels([...body.labels, ...config.tracker.required_labels]);
   }
   if ("agent" in body) patch.agent = resolveRequestedAgent(body.agent, config);
-  for (const field of ["project", "role", "branch_name"]) {
+  for (const field of ["project", "role", "thread", "branch_name"]) {
     if (field in body) {
       const value = body[field] == null ? "" : String(body[field]).trim();
       patch[field] = value || null;
