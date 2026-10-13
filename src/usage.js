@@ -1,23 +1,26 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const CACHE_MS = 10 * 1000;
 const TAIL_BYTES = 128 * 1024;
 const SCAN_CHUNK_BYTES = 4 * 1024 * 1024;
 const LOOKBACK_DAYS = 35;
+const CLAUDE_LIMITS_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "data", "claude-limits.json");
 
 let cache = { at: 0, value: null };
 
-// What is left before the next wall. Codex publishes real rate limits; Claude Code
-// records what a session cost but never what the ceiling is, so there the only honest
-// gauge is against a budget the operator declares.
+// What is left before the next wall. Codex writes its real rate limits to its session
+// log. Claude Code reports its plan limits only to its status line, so
+// scripts/claude-limits.js saves them from there; until that has run, all there is to show
+// for Claude is what the sessions cost.
 export async function collectUsage(config, { force = false } = {}) {
   if (!force && cache.value && Date.now() - cache.at < CACHE_MS) return cache.value;
 
   const [codex, claude] = await Promise.all([
     codexLimits().catch(() => null),
-    claudeSpend(config?.usage?.budgets?.claude).catch(() => null)
+    claudeLimits().then((limits) => limits || claudeSpend(config?.usage?.budgets?.claude)).catch(() => null)
   ]);
 
   const sources = [codex, claude].filter(Boolean);
@@ -113,7 +116,37 @@ async function lastTokenCount(file) {
   return found;
 }
 
-// ---------- Claude Code: spend, so a declared budget is the yardstick ----------
+// ---------- Claude Code: the plan limits its status line was handed ----------
+
+export async function claudeLimits(file = CLAUDE_LIMITS_FILE) {
+  let saved;
+  try {
+    saved = JSON.parse(await fs.readFile(file, "utf8"));
+  } catch {
+    return null; // the status line command is not set up, or has not run yet
+  }
+
+  const windows = [];
+  for (const [key, label, minutes] of [["five_hour", "Session", 300], ["seven_day", "Weekly", 10080]]) {
+    const w = saved?.rate_limits?.[key];
+    if (!w || !Number.isFinite(w.used_percentage)) continue;
+    windows.push(rolloverWindow(key, label, { used_percent: w.used_percentage, window_minutes: minutes, resets_at: w.resets_at }));
+  }
+  if (!windows.length) return null;
+
+  return {
+    id: "claude",
+    label: "Claude Code",
+    kind: "rate_limit",
+    plan: null,
+    remaining_percent: Math.min(...windows.map((w) => w.remaining_percent)),
+    windows,
+    measured_at: saved.at || null,
+    note: null
+  };
+}
+
+// ---------- Claude Code: spend, when no limits have been saved ----------
 
 // Claude Code writes a session's cost only now and then -- a session still running may have
 // none -- and stamps it with when the session began, which files a month-long session's

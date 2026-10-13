@@ -90,13 +90,11 @@ vault:
   enabled: true
   path: ~/Documents/Obsidian Vault
 usage:
-  # Codex reports real rate limits. Claude Code records what a session cost but not your
-  # plan's ceiling, so declare a budget to get a gauge for it.
+  # Codex writes its real rate limits to its session log. Claude Code's come from its
+  # status line: point statusLine at scripts/claude-limits.js in ~/.claude/settings.json.
+  # Without that the Claude gauge shows spend only; budgets.claude.weekly_usd and
+  # monthly_usd turn the spend into a percentage of a budget you declare.
   enabled: true
-  budgets:
-    claude:
-      weekly_usd: 200
-      monthly_usd: 600
 verify:
   # After an agent run, run the task's own check and attach the result to the card.
   # A task sets its own `verify_command`; this is the fallback for tasks that do not.

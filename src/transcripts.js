@@ -17,7 +17,7 @@ const historyCache = new Map();
 export async function readActivity(session, roots = {}) {
   try {
     if (session.name === "claude") return await claudeActivity(session.cwd, roots.claude);
-    if (session.name === "codex") return await codexActivity(session.cwd);
+    if (session.name === "codex") return await codexActivity(session.cwd, roots.codex);
   } catch {
     // A transcript that cannot be read just means no detail for this card.
   }
@@ -103,20 +103,20 @@ async function isDirectory(target) {
   }
 }
 
-async function codexActivity(cwd) {
-  const root = path.join(os.homedir(), ".codex", "sessions");
+async function codexActivity(cwd, root = path.join(os.homedir(), ".codex", "sessions")) {
   const cutoff = Date.now() - CODEX_WINDOW_MS;
   const files = (await walkJsonl(root, cutoff)).sort((a, b) => b.mtime.localeCompare(a.mtime));
 
   for (const file of files.slice(0, 40)) {
-    const records = await tailRecords(file.path, 8 * 1024, "head");
-    const meta = records.find((record) => record.type === "session_meta");
-    if (meta?.payload?.cwd !== cwd) continue;
+    const meta = await firstRecord(file.path);
+    if (meta?.type !== "session_meta" || meta.payload?.cwd !== cwd) continue;
 
     const tail = await tailRecords(file.path);
     let activity = null;
     let at = null;
-    let phase = "idle";
+    // A turn is announced once, at its start, and a long one pushes that out of the tail.
+    // So a tail that never says the turn finished is a turn still running.
+    let phase = "working";
     for (const record of tail) {
       if (record.timestamp) at = record.timestamp;
       const payload = record.payload;
@@ -126,6 +126,8 @@ async function codexActivity(cwd) {
       else if (payload.type === "message" && payload.role === "assistant") {
         const text = textOf(payload.content);
         if (text) activity = clip(text);
+      } else if ((payload.type === "function_call" || payload.type === "custom_tool_call") && payload.name) {
+        activity = `using ${payload.name}`;
       }
     }
     const when = at || file.mtime;
@@ -231,6 +233,30 @@ async function walkJsonl(dir, cutoffMs, depth = 0) {
     }
   }
   return found;
+}
+
+// The whole first line, however long. Codex opens a log with one record that carries its
+// base instructions, so a fixed-size read of the start cuts it off mid-record.
+async function firstRecord(filePath, limit = 1024 * 1024) {
+  const handle = await fs.open(filePath, "r");
+  try {
+    const chunks = [];
+    let position = 0;
+    while (position < limit) {
+      const buffer = Buffer.alloc(16 * 1024);
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+      if (!bytesRead) break;
+      const end = buffer.subarray(0, bytesRead).indexOf(10);
+      chunks.push(buffer.subarray(0, end === -1 ? bytesRead : end));
+      if (end !== -1) break;
+      position += bytesRead;
+    }
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    return null;
+  } finally {
+    await handle.close();
+  }
 }
 
 // Read only the end (or start) of a transcript; these files grow without bound.

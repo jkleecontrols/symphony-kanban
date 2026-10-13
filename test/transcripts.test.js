@@ -64,3 +64,58 @@ test("activity reports the session topic and its latest tool call", async () => 
   assert.equal(activity.activity, "using Bash", "the latest record wins");
   assert.equal(activity.at, "2026-09-28T10:01:00.000Z");
 });
+
+async function codexRoot(records) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "symphony-codex-"));
+  const dir = path.join(root, "2026", "10", "13");
+  await fs.mkdir(dir, { recursive: true });
+  const file = "rollout-2026-10-13T16-21-21-01a13724-33a5-7510-be11-13724756714d.jsonl";
+  await fs.writeFile(path.join(dir, file), records.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  return root;
+}
+
+const minutesAgo = (n) => new Date(Date.now() - n * 60000).toISOString();
+const codexMeta = (cwd, extra = {}) => ({ timestamp: minutesAgo(30), type: "session_meta", payload: { cwd, ...extra } });
+
+test("a Codex session is matched to its folder when its first record is long", async () => {
+  const root = await codexRoot([
+    // Codex writes its whole base instructions into this record: tens of kilobytes.
+    codexMeta("/Users/me/project", { base_instructions: "x".repeat(20000) }),
+    { timestamp: minutesAgo(29), type: "event_msg", payload: { type: "task_started" } },
+    { timestamp: minutesAgo(10), type: "response_item", payload: { type: "function_call", name: "shell" } }
+  ]);
+
+  const activity = await readActivity({ name: "codex", cwd: "/Users/me/project" }, { codex: root });
+  assert.equal(activity.session_id, "01a13724-33a5-7510-be11-13724756714d");
+  assert.equal(activity.activity, "using shell");
+  assert.equal(activity.phase, "working");
+});
+
+test("a Codex turn that started long before the end of its log is still working", async () => {
+  const filler = Array.from({ length: 300 }, () => ({
+    timestamp: minutesAgo(20),
+    type: "response_item",
+    payload: { type: "reasoning", summary: "y".repeat(500) }
+  }));
+  const root = await codexRoot([
+    codexMeta("/Users/me/project"),
+    { timestamp: minutesAgo(29), type: "event_msg", payload: { type: "task_started" } },
+    ...filler,
+    { timestamp: minutesAgo(10), type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "still at it" }] } }
+  ]);
+
+  const activity = await readActivity({ name: "codex", cwd: "/Users/me/project" }, { codex: root });
+  assert.equal(activity.phase, "working");
+  assert.equal(activity.activity, "still at it");
+});
+
+test("a Codex turn that finished a while ago is idle", async () => {
+  const root = await codexRoot([
+    codexMeta("/Users/me/project"),
+    { timestamp: minutesAgo(29), type: "event_msg", payload: { type: "task_started" } },
+    { timestamp: minutesAgo(10), type: "event_msg", payload: { type: "task_complete" } }
+  ]);
+
+  const activity = await readActivity({ name: "codex", cwd: "/Users/me/project" }, { codex: root });
+  assert.equal(activity.phase, "idle");
+});

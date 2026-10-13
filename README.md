@@ -141,6 +141,10 @@ Telling *waiting on an answer* from *idle* is the one judgement call: it reads t
 thing the assistant said and asks whether it ends in a question. That heuristic lives in
 `looksLikeAQuestion` in `src/transcripts.js` and is the part most worth tuning.
 
+Codex transcripts are matched to folders from their first `session_meta` record, even
+when that record is long. A turn stays In Progress until its log records completion;
+the latest assistant message or tool call supplies the card's activity line.
+
 The watcher owns only those four columns, so a card parked in Archive or Canceled stays
 put, and a task Symphony is running itself is left to its own lifecycle. Reaching Done
 needs a session to have been seen in that folder and then be gone for `settle_polls`
@@ -165,6 +169,28 @@ answer is visible without opening anything.
 `GET /api/activity` merges three sources that already existed: the live sessions, the
 structured log, and the issues they belong to. The board says where each card stands; this
 says what moved while you were away.
+
+## Usage gauges
+
+The rings in the top bar show remaining capacity for Codex and Claude Code. Click one for
+the session and weekly windows. Codex reads its reported limits from the newest session
+log. Claude Code supplies its plan limits to a status line command; add this to
+`~/.claude/settings.json`, replacing the path with your checkout's absolute path:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "node /absolute/path/to/symphony-kanban/scripts/claude-limits.js"
+  }
+}
+```
+
+The command writes the latest limits to the ignored `data/claude-limits.json` and prints
+the usage line in Claude Code. Its snapshot refreshes while a Claude session is open. If
+there is no snapshot yet, the board estimates dollar spend from each assistant turn's
+tokens. Set `usage.budgets.claude.weekly_usd` and `monthly_usd` in `WORKFLOW.md` to compare
+that fallback estimate with your own budget; those budgets are not Claude plan limits.
 
 ## Graph
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { claudeSpend } from "../src/usage.js";
+import { claudeLimits, claudeSpend } from "../src/usage.js";
 
 const DAY = 86400000;
 const NOW = Date.parse("2026-10-13T20:00:00Z");
@@ -112,4 +112,41 @@ test("cache reads and writes are priced at their own rates", async () => {
   const result = await claudeSpend(null, { root, now: NOW });
   // 0.1x for a read, 2x for an hour-long write, 1.25x for a five-minute one, at $5/M.
   assert.equal(spendOf(result, "day"), 0.5 + 10 + 6.25);
+});
+
+async function limitsFile(rate_limits) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "symphony-limits-"));
+  const file = path.join(root, "claude-limits.json");
+  await fs.writeFile(file, JSON.stringify({ at: "2026-10-13T21:24:53.282Z", rate_limits }));
+  return file;
+}
+
+test("Claude's plan limits are reported as the percentages Claude Code was given", async () => {
+  const later = Math.floor(Date.now() / 1000) + 3600;
+  const file = await limitsFile({
+    five_hour: { used_percentage: 48, resets_at: later },
+    seven_day: { used_percentage: 5, resets_at: later }
+  });
+
+  const result = await claudeLimits(file);
+  assert.equal(result.kind, "rate_limit");
+  assert.equal(result.remaining_percent, 52);
+  assert.deepEqual(result.windows.map((w) => [w.label, w.used_percent]), [["5 hours", 48], ["1 week", 5]]);
+  assert.equal(result.measured_at, "2026-10-13T21:24:53.282Z");
+});
+
+test("a session window that has reset since it was saved reads as unused", async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const file = await limitsFile({
+    five_hour: { used_percentage: 90, resets_at: now - 60 },
+    seven_day: { used_percentage: 5, resets_at: now + 3600 }
+  });
+
+  const result = await claudeLimits(file);
+  assert.equal(result.windows[0].used_percent, 0);
+  assert.equal(result.remaining_percent, 95);
+});
+
+test("with no saved limits there is nothing to report", async () => {
+  assert.equal(await claudeLimits(path.join(os.tmpdir(), "symphony-no-such-limits.json")), null);
 });

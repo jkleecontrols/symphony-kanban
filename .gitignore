@@ -5,6 +5,7 @@ node_modules/
 data/issues.json
 
 data/symphony.log.jsonl
+data/claude-limits.json
 data/workspaces/
 *.lock
 *.tmp
