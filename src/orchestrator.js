@@ -181,7 +181,7 @@ export class Orchestrator {
       if (!Number.isFinite(touched) || touched > cutoff) continue;
       try {
         await this.tracker.updateIssueState(issue.id, settings.to_state);
-        this.logger.event("info", "auto_archived", {
+        this.logger.event("info", "auto_done", {
           issue_id: issue.id,
           identifier: issue.identifier,
           idle_days: Math.floor((Date.now() - touched) / 86400000),

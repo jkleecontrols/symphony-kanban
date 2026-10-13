@@ -1,7 +1,7 @@
 import { createGraph } from "./graph.js";
 
 const OTHER_COLUMN = "(Other)";
-const ARCHIVE_STATE = "archive";
+const HIDDEN_STATES = new Set(["done", "canceled"]);
 
 let config = { states: [], active_states: [], terminal_states: [], agents: [], required_labels: [], default_agent: "" };
 let snapshot = null;
@@ -10,7 +10,7 @@ let logs = [];
 
 let editingId = null;
 let deleteArmedId = null;
-let archiveOpen = false;
+const openDrawers = new Set();
 const openEvidence = new Set();
 const replyDrafts = new Map();
 let usage = null;
@@ -183,9 +183,11 @@ async function onComposerSubmit(event) {
 }
 
 async function onBoardClick(event) {
-  const summary = event.target.closest("[data-archive] > summary");
+  const summary = event.target.closest("[data-drawer] > summary");
   if (summary) {
-    archiveOpen = !summary.parentElement.open;
+    const state = summary.parentElement.dataset.drawer;
+    if (summary.parentElement.open) openDrawers.delete(state);
+    else openDrawers.add(state);
     return;
   }
 
@@ -239,11 +241,11 @@ async function onBoardClick(event) {
     return refresh();
   }
 
-  if (action === "archive") {
+  if (action === "mark-done") {
     try {
-      await send(`/api/issues/${encodeURIComponent(issueId)}`, "PATCH", { state: "Archive" });
+      await send(`/api/issues/${encodeURIComponent(issueId)}`, "PATCH", { state: "Done" });
     } catch (error) {
-      return showBanner(`Could not archive the task: ${error.message}`);
+      return showBanner(`Could not mark the task done: ${error.message}`);
     }
     clearBanner();
     return refresh();
@@ -493,26 +495,27 @@ function renderBoard() {
   const draw = (issue) => card(issue, claimByIssue.get(issue.id), failureByIssue[issue.id], sessionsFor(issue));
 
   const visible = projectFilter ? issues.filter((issue) => (issue.project || "") === projectFilter) : issues;
-  const columns = config.states.filter((state) => lower(state) !== ARCHIVE_STATE);
-  const archived = visible.filter((issue) => lower(issue.state) === ARCHIVE_STATE);
-  const known = new Set([...columns.map(lower), ARCHIVE_STATE]);
+  const columns = config.states.filter((state) => !HIDDEN_STATES.has(lower(state)));
+  const done = visible.filter((issue) => lower(issue.state) === "done");
+  const canceled = visible.filter((issue) => lower(issue.state) === "canceled");
+  const known = new Set(config.states.map(lower));
   const leftovers = visible.filter((issue) => !known.has(lower(issue.state)));
   if (leftovers.length) columns.push(OTHER_COLUMN);
 
-  const archiveHost = columns.find((column) => lower(column) === "done")
-    ?? config.terminal_states.find((state) => lower(state) !== ARCHIVE_STATE)
+  const archiveHost = columns.find((column) => lower(column) === "archive")
+    ?? config.terminal_states.find((state) => !HIDDEN_STATES.has(lower(state)))
     ?? columns.at(-1);
 
   boardEl.innerHTML = columns.map((column) => {
     const columnIssues = column === OTHER_COLUMN
       ? leftovers
       : visible.filter((issue) => lower(issue.state) === lower(column));
-    const archiveHere = column === archiveHost && archived.length;
+    const drawersHere = column === archiveHost;
     return `
       <section class="column">
         <header><h2>${escapeHtml(column)}</h2><span class="count">${columnIssues.length}</span></header>
         <div class="cards">
-          ${archiveHere ? archiveSection(archived, draw) : ""}
+          ${drawersHere ? terminalDrawer("Done", done, draw) + terminalDrawer("Canceled", canceled, draw) : ""}
           ${columnIssues.map(draw).join("")}
         </div>
       </section>
@@ -529,11 +532,12 @@ function renderView() {
   graph.render(issues, { project: projectFilter, liveIds });
 }
 
-function archiveSection(archived, draw) {
+function terminalDrawer(state, cards, draw) {
+  if (!cards.length) return "";
   return `
-    <details class="archive" data-archive ${archiveOpen ? "open" : ""}>
-      <summary>Archive <span class="count">${archived.length}</span></summary>
-      <div class="archive-cards">${archived.map(draw).join("")}</div>
+    <details class="terminal-drawer" data-drawer="${state}" ${openDrawers.has(state) ? "open" : ""}>
+      <summary>${state} <span class="count">${cards.length}</span></summary>
+      <div class="terminal-drawer-cards">${cards.map(draw).join("")}</div>
     </details>
   `;
 }
@@ -585,7 +589,7 @@ function card(issue, claim, failure, external = []) {
       </div>
       <div class="card-actions">
         <button type="button" data-action="edit" data-issue-id="${escapeAttr(issue.id)}">Edit</button>
-        ${isArchivable(issue) ? `<button type="button" data-action="archive" data-issue-id="${escapeAttr(issue.id)}">Archive</button>` : ""}
+        ${canMarkDone(issue) ? `<button type="button" data-action="mark-done" data-issue-id="${escapeAttr(issue.id)}">Done</button>` : ""}
         ${failure ? `<button type="button" data-action="retry" data-issue-id="${escapeAttr(issue.id)}">Retry</button>` : ""}
         ${deleteArmedId === issue.id
           ? `<button type="button" class="danger" data-action="confirm-delete" data-issue-id="${escapeAttr(issue.id)}">Delete?</button>
@@ -756,9 +760,8 @@ function relativeTime(iso) {
   return `${Math.round(seconds / 86400)}d ago`;
 }
 
-function isArchivable(issue) {
-  const state = lower(issue.state);
-  return config.terminal_states.some((terminal) => lower(terminal) === state) && state !== "archive";
+function canMarkDone(issue) {
+  return lower(issue.state) === "archive";
 }
 
 function agentOptions() {

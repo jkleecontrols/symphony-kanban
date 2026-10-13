@@ -134,7 +134,7 @@ kept in step by hand:
 | A turn is running (`stop_reason: tool_use`) | In Progress |
 | The turn ended with a question for you | Human Review |
 | Open, with nothing pending | Ready |
-| Process gone | Done |
+| Process gone | Archive |
 
 Claude records why each turn stopped, which is what separates working from handed-back.
 Telling *waiting on an answer* from *idle* is the one judgement call: it reads the last
@@ -145,8 +145,8 @@ Codex transcripts are matched to folders from their first `session_meta` record,
 when that record is long. A turn stays In Progress until its log records completion;
 the latest assistant message or tool call supplies the card's activity line.
 
-The watcher owns only those four columns, so a card parked in Archive or Canceled stays
-put, and a task Symphony is running itself is left to its own lifecycle. Reaching Done
+The watcher owns only those four columns, so a card parked in Done or Canceled stays
+put, and a task Symphony is running itself is left to its own lifecycle. Reaching Archive
 needs a session to have been seen in that folder and then be gone for `settle_polls`
 polls; a transcript on disk counts as having been seen, so a restart does not freeze cards
 where they were left.
@@ -349,15 +349,16 @@ Timeouts matter here too. The defaults are sized for a real agent — a 15 minut
 
 `+ New Task` opens a form for title, description, priority, state, labels, assigned AI,
 check command, project folder and auto-dispatch. Each card has `Edit` for inline editing,
-a two-step `Delete`, and `Archive` when it is in a terminal state. Required labels from
+a two-step `Delete`, and `Done` for a card in Archive. Required labels from
 `tracker.required_labels` are added automatically. While a card is open for editing, the
 board pauses its three-second refresh so in-progress input is never overwritten.
 
 ![Adding a task: the form takes a title, state, assigned AI, check command and project folder, and the card appears in Ready](docs/add-task.gif)
 
-Archived cards collapse into a drawer at the top of the Done column, with unarchived Done
-cards below it. A card that has sat in Done untouched for `archive.after_days` moves there
-on its own.
+Archive shows recently finished work. Done and Canceled appear as separate collapsed
+drawers at the top of that column, leaving four columns on the board. A card that has sat
+in Archive untouched for `archive.after_days` moves into Done on its own. The `Done`
+button moves an Archive card there immediately.
 
 Three themes — Apple, Pink and Blue — switch from the top bar and are remembered per
 browser. Each is a block of custom properties at the top of `public/styles.css`; add a
@@ -422,11 +423,11 @@ sessions:          # the board follows the session in each folder
     working: In Progress
     idle: Ready
     waiting: Human Review
-    ended: Done
-archive:           # Done leaves the column on its own
+    ended: Archive
+archive:           # Archive cards move into the collapsed Done drawer
   enabled: true
-  from_state: Done
-  to_state: Archive
+  from_state: Archive
+  to_state: Done
   after_days: 2
 notify:            # say when attention is needed
   enabled: true

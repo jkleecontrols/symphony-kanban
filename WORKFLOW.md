@@ -10,8 +10,8 @@ tracker:
     - In Progress
     - Human Review
   terminal_states:
-    - Done
     - Archive
+    - Done
     - Canceled
 polling:
   interval_ms: 5000
@@ -37,7 +37,7 @@ sessions:
   settle_polls: 2
   # A terminal left open for days is not work in progress.
   stale_after_hours: 12
-  # A card parked in Archive whose folder starts working again comes back.
+  # A card parked in Done whose folder starts working again comes back.
   revive_from_terminal: true
   # A session in a folder with no card gets one. Limit where that can happen.
   autodiscover: true
@@ -49,12 +49,12 @@ sessions:
     working: In Progress
     idle: Ready
     waiting: Human Review
-    ended: Done
+    ended: Archive
 archive:
-  # Finished work leaves the Done column on its own after this many days untouched.
+  # A completed project stays visible in Archive, then moves into the Done drawer.
   enabled: true
-  from_state: Done
-  to_state: Archive
+  from_state: Archive
+  to_state: Done
   after_days: 2
 notify:
   # The board is passive; with several folders in flight the scarce thing is attention.

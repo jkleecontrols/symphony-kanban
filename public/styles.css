@@ -621,14 +621,14 @@ pre,
   }
 }
 
-/* --- archive: a collapsed section at the top of the Done column, not its own column --- */
-.archive {
+/* --- finished and canceled cards stay in drawers under Archive --- */
+.terminal-drawer {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--soft);
 }
 
-.archive > summary {
+.terminal-drawer > summary {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -641,11 +641,11 @@ pre,
   user-select: none;
 }
 
-.archive > summary::-webkit-details-marker {
+.terminal-drawer > summary::-webkit-details-marker {
   display: none;
 }
 
-.archive > summary::before {
+.terminal-drawer > summary::before {
   content: "";
   width: 0;
   height: 0;
@@ -655,20 +655,20 @@ pre,
   transition: transform 0.15s ease;
 }
 
-.archive[open] > summary::before {
+.terminal-drawer[open] > summary::before {
   transform: rotate(90deg);
 }
 
-.archive > summary:hover {
+.terminal-drawer > summary:hover {
   color: var(--ink);
 }
 
-.archive .count {
+.terminal-drawer .count {
   margin-left: auto;
   font-weight: 400;
 }
 
-.archive-cards {
+.terminal-drawer-cards {
   display: grid;
   gap: 10px;
   padding: 0 8px 10px;

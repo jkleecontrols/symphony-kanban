@@ -32,7 +32,7 @@ if (turn === "3" && process.env.SYMPHONY_TRACKER_KIND === "local_json" && proces
     const issues = JSON.parse(source);
     const target = issues.find((item) => item.id === process.env.SYMPHONY_ISSUE_ID);
     if (target) {
-      target.state = "Done";
+      target.state = "Archive";
       target.dispatchable = false;
       target.updated_at = new Date().toISOString();
       await fs.writeFile(process.env.SYMPHONY_TRACKER_PATH, `${JSON.stringify(issues, null, 2)}\n`);
@@ -41,7 +41,7 @@ if (turn === "3" && process.env.SYMPHONY_TRACKER_KIND === "local_json" && proces
         event: "tracker_updated",
         issue,
         turn,
-        message: "mock agent moved issue to Done"
+        message: "mock agent moved issue to Archive"
       }));
     }
   });

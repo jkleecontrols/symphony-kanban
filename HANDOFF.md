@@ -32,6 +32,11 @@ rejects self-links, unknown cards and cycles. Browser drag and arrow removal wer
 on the live board; the temporary dependency was removed. The service was restarted to
 load the new API. This graph work is committed as `845814b`. See README.md for use.
 
+The board now keeps four columns: Ready, In Progress, Human Review, Archive. Session ends
+land in Archive; after two quiet days they move to a collapsed Done drawer. Canceled is a
+second drawer there. The existing local Done and Archive states were exchanged so the
+same cards stay visible or hidden as before.
+
 Further changes to `src/usage.js`, `src/transcripts.js`, `scripts/claude-limits.js`,
 `WORKFLOW.md`, `.gitignore`, and the usage and transcript tests:
 

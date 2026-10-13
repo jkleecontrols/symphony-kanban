@@ -13,6 +13,7 @@ const EVENTS = {
   command_run: { kind: "command", attention: (e) => !e.ok, say: (e) => `${e.label} → exit ${e.exit_code}` },
   session_state_synced: { kind: "state", say: (e) => `${e.from} → ${e.to}` },
   folder_discovered: { kind: "discovery", say: (e) => `found a session in ${short(e.path)}` },
+  auto_done: { kind: "state", say: (e) => `moved to Done after ${e.idle_days}d idle` },
   auto_archived: { kind: "state", say: (e) => `archived after ${e.idle_days}d idle` },
   dispatch_refused: { kind: "guard", attention: true, say: (e) => `dispatch refused — ${clip(e.reason)}` },
   dispatch_blocked: { kind: "guard", say: (e) => `waiting on ${e.blocked_by}` },

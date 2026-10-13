@@ -8,7 +8,7 @@ import { resolveConfig } from "../src/workflow.js";
 import { looksLikeAQuestion, phaseOf } from "../src/transcripts.js";
 
 const logger = { event() {}, recent: [] };
-const STATES = { working: "In Progress", idle: "Ready", waiting: "Human Review", ended: "Done" };
+const STATES = { working: "In Progress", idle: "Ready", waiting: "Human Review", ended: "Archive" };
 
 async function harness(state, sessionsOverride = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "symphony-watch-"));
@@ -26,7 +26,7 @@ async function harness(state, sessionsOverride = {}) {
       kind: "local_json",
       provider: { path: issuesPath },
       active_states: ["Ready", "In Progress", "Human Review"],
-      terminal_states: ["Done", "Archive"]
+      terminal_states: ["Archive", "Done"]
     },
     workspace: { root: path.join(dir, "workspaces") },
     sessions: { settle_polls: 2, states: STATES, ...sessionsOverride },
@@ -78,7 +78,7 @@ test("an open but idle session puts the task back to ready", async () => {
   assert.equal(await stateOf(orchestrator), "Ready");
 });
 
-test("a session that ends moves the task to done, after settling", async () => {
+test("a session that ends moves the task to Archive, after settling", async () => {
   const { orchestrator, project } = await harness("In Progress");
   let live = session(project, "working");
   orchestrator.scanSessions = async () => live;
@@ -91,30 +91,30 @@ test("a session that ends moves the task to done, after settling", async () => {
   assert.equal(await stateOf(orchestrator), "In Progress", "one missing poll may be a restart");
 
   await orchestrator.watchExternalSessions();
-  assert.equal(await stateOf(orchestrator), "Done");
+  assert.equal(await stateOf(orchestrator), "Archive");
 });
 
-test("an archived card whose folder starts working again comes back", async () => {
-  const { orchestrator, project } = await harness("Archive");
+test("a Done card whose folder starts working again comes back", async () => {
+  const { orchestrator, project } = await harness("Done");
   orchestrator.scanSessions = async () => session(project, "working");
   await orchestrator.watchExternalSessions();
   assert.equal(await stateOf(orchestrator), "In Progress",
     "work restarting in the folder means the card is not finished after all");
 });
 
-test("an archived card with nothing running stays archived", async () => {
-  const { orchestrator } = await harness("Archive");
+test("a Done card with nothing running stays Done", async () => {
+  const { orchestrator } = await harness("Done");
   orchestrator.scanSessions = async () => [];
   orchestrator.lookupHistory = async () => ({ at: new Date().toISOString(), phase: "idle" });
   for (let i = 0; i < 4; i += 1) await orchestrator.watchExternalSessions();
-  assert.equal(await stateOf(orchestrator), "Archive", "the watcher does not sweep finished work back out");
+  assert.equal(await stateOf(orchestrator), "Done", "the watcher does not sweep finished work back out");
 });
 
 test("reviving can be turned off", async () => {
-  const { orchestrator, project } = await harness("Archive", { revive_from_terminal: false });
+  const { orchestrator, project } = await harness("Done", { revive_from_terminal: false });
   orchestrator.scanSessions = async () => session(project, "working");
   await orchestrator.watchExternalSessions();
-  assert.equal(await stateOf(orchestrator), "Archive");
+  assert.equal(await stateOf(orchestrator), "Done");
 });
 
 test("a task Symphony is running itself is not moved by the watcher", async () => {
@@ -132,12 +132,12 @@ test("watching can be turned off", async () => {
   assert.equal(await stateOf(orchestrator), "In Progress");
 });
 
-test("Done moves to Archive once it has sat untouched for the configured days", async () => {
-  const { orchestrator } = await harness("Done");
-  orchestrator.config.archive = { enabled: true, from_state: "Done", to_state: "Archive", after_days: 2 };
+test("Archive moves to Done once it has sat untouched for the configured days", async () => {
+  const { orchestrator } = await harness("Archive");
+  orchestrator.config.archive = { enabled: true, from_state: "Archive", to_state: "Done", after_days: 2 };
 
   await orchestrator.sweepArchive();
-  assert.equal(await stateOf(orchestrator), "Done", "freshly finished work stays visible");
+  assert.equal(await stateOf(orchestrator), "Archive", "freshly finished work stays visible");
 
   const old = new Date(Date.now() - 3 * 86400000).toISOString();
   const [issue] = await orchestrator.tracker.readRawIssues();
@@ -145,10 +145,10 @@ test("Done moves to Archive once it has sat untouched for the configured days", 
   await orchestrator.tracker.writeRawIssues([issue]);
 
   await orchestrator.sweepArchive();
-  assert.equal(await stateOf(orchestrator), "Archive");
+  assert.equal(await stateOf(orchestrator), "Done");
 });
 
-test("after a restart, a folder with a transcript still reaches Done", async () => {
+test("after a restart, a folder with a transcript still reaches Archive", async () => {
   const { orchestrator } = await harness("Human Review");
   orchestrator.scanSessions = async () => [];
   orchestrator.externalWatch.clear();
@@ -158,7 +158,7 @@ test("after a restart, a folder with a transcript still reaches Done", async () 
   assert.equal(await stateOf(orchestrator), "Human Review", "one poll is not a settled absence");
 
   await orchestrator.watchExternalSessions();
-  assert.equal(await stateOf(orchestrator), "Done", "a folder that was worked in and is now quiet is finished");
+  assert.equal(await stateOf(orchestrator), "Archive", "a folder that was worked in and is now quiet is finished");
 });
 
 test("a folder nobody ever worked in is left alone", async () => {
