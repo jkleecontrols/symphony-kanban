@@ -2,8 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-const CACHE_MS = 60 * 1000;
+const CACHE_MS = 10 * 1000;
 const TAIL_BYTES = 128 * 1024;
+const SCAN_CHUNK_BYTES = 4 * 1024 * 1024;
 const LOOKBACK_DAYS = 35;
 
 let cache = { at: 0, value: null };
@@ -112,31 +113,55 @@ async function lastTokenCount(file) {
   return found;
 }
 
-// ---------- Claude Code: spend only, so a declared budget is the yardstick ----------
+// ---------- Claude Code: spend, so a declared budget is the yardstick ----------
 
-async function claudeSpend(budget) {
-  const root = path.join(os.homedir(), ".claude", "projects");
-  const files = await walk(root, (name) => name.endsWith(".jsonl"), Date.now() - LOOKBACK_DAYS * 86400000, 2);
+// Claude Code writes a session's cost only now and then -- a session still running may have
+// none -- and stamps it with when the session began, which files a month-long session's
+// spend under the day it was opened. So spend is rebuilt from the token counts on every
+// assistant turn, at the time of that turn. The cost records are kept for one thing: what
+// each model charges per token, which nothing else on disk says.
+const OUTPUT_WEIGHT = 5;
+const CACHE_READ_WEIGHT = 0.1;
+const CACHE_WRITE_1H_WEIGHT = 2;
+const CACHE_WRITE_5M_WEIGHT = 1.25;
+
+// Transcripts run to tens of megabytes, so each is read once and then only where it grew.
+const scans = new Map();
+
+export async function claudeSpend(budget, { root = path.join(os.homedir(), ".claude", "projects"), now = Date.now() } = {}) {
+  const files = await walk(root, (name) => name.endsWith(".jsonl"), Date.now() - LOOKBACK_DAYS * 86400000);
   if (!files.length) return null;
 
-  // One cost-state per session, rewritten as it grows; the last one is that session's total.
-  const sessions = new Map();
+  // A message is written once per content block, and a resumed session repeats its
+  // history in a new file, so turns are keyed by message id across every file.
+  const turns = new Map();
+  const billed = new Map();
   for (const file of files) {
-    for (const record of await tailRecords(file.path)) {
-      if (record?.type !== "cost-state" || !Number.isFinite(record.totalCostUSD)) continue;
-      sessions.set(record.sessionId || file.path, {
-        cost: record.totalCostUSD,
-        startedAt: Number.isFinite(record.startTime) ? record.startTime : file.mtimeMs
-      });
+    const scan = await scanTranscript(file.path).catch(() => null);
+    if (!scan) continue;
+    for (const [id, turn] of scan.turns) turns.set(id, turn);
+    for (const [model, { cost, tokens }] of scan.billed) {
+      const sum = billed.get(model) || { cost: 0, tokens: 0 };
+      billed.set(model, { cost: sum.cost + cost, tokens: sum.tokens + tokens });
     }
   }
-  if (!sessions.size) return null;
 
-  const now = Date.now();
-  const spend = { day: 0, week: 0, month: 0, total: 0 };
-  for (const { cost, startedAt } of sessions.values()) {
-    spend.total += cost;
-    const age = now - startedAt;
+  const rates = new Map();
+  for (const [model, { cost, tokens }] of billed) if (tokens > 0) rates.set(model, cost / tokens);
+  if (!rates.size || !turns.size) return null;
+  // A model with no cost record yet is priced as the dearest one seen, so the gauge errs
+  // towards less left rather than more.
+  const dearest = Math.max(...rates.values());
+
+  const spend = { day: 0, week: 0, month: 0 };
+  const sessions = new Set();
+  let latest = 0;
+  for (const turn of turns.values()) {
+    const age = now - turn.at;
+    if (age > LOOKBACK_DAYS * 86400000) continue;
+    const cost = turn.tokens * (rates.get(turn.model) ?? dearest);
+    sessions.add(turn.session);
+    latest = Math.max(latest, turn.at);
     if (age <= 86400000) spend.day += cost;
     if (age <= 7 * 86400000) spend.week += cost;
     if (age <= 30 * 86400000) spend.month += cost;
@@ -155,15 +180,84 @@ async function claudeSpend(budget) {
     plan: null,
     remaining_percent: ratios.length ? round(Math.max(0, 100 - Math.max(...ratios) * 100)) : null,
     windows: [
-      { key: "day", label: "Today", spend_usd: round(spend.day, 2), budget_usd: null, resets_at: endOfDay() },
+      { key: "day", label: "24 hours", spend_usd: round(spend.day, 2), budget_usd: null, resets_at: null },
       { key: "week", label: "7 days", spend_usd: round(spend.week, 2), budget_usd: Number.isFinite(weekly) ? weekly : null, resets_at: null },
       { key: "month", label: "30 days", spend_usd: round(spend.month, 2), budget_usd: Number.isFinite(monthly) ? monthly : null, resets_at: null }
     ],
     sessions: sessions.size,
+    measured_at: latest ? new Date(latest).toISOString() : null,
     note: ratios.length
-      ? "Measured against the budget you declared, not a limit Claude reports."
+      ? "Estimated from each turn's token counts, against the budget you declared, not a limit Claude reports."
       : "Claude Code records what a session cost but not your plan's ceiling, so there is no percentage to show. Set usage.budgets.claude in WORKFLOW.md for a gauge."
   };
+}
+
+async function scanTranscript(filePath) {
+  const handle = await fs.open(filePath, "r");
+  try {
+    const { size } = await handle.stat();
+    let scan = scans.get(filePath);
+    if (!scan || size < scan.offset) {
+      scan = { offset: 0, carry: Buffer.alloc(0), turns: new Map(), billed: new Map() };
+      scans.set(filePath, scan);
+    }
+    while (scan.offset < size) {
+      const buffer = Buffer.alloc(Math.min(SCAN_CHUNK_BYTES, size - scan.offset));
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, scan.offset);
+      if (!bytesRead) break;
+      scan.offset += bytesRead;
+      const data = Buffer.concat([scan.carry, buffer.subarray(0, bytesRead)]);
+      // Cut at the last newline: a line still being written waits for the next read.
+      const cut = data.lastIndexOf(10) + 1;
+      scan.carry = data.subarray(cut);
+      for (const line of data.toString("utf8", 0, cut).split("\n")) readTranscriptLine(scan, line);
+    }
+    return scan;
+  } finally {
+    await handle.close();
+  }
+}
+
+function readTranscriptLine(scan, line) {
+  if (!line.includes('"assistant"') && !line.includes('"cost-state"')) return;
+  let record;
+  try {
+    record = JSON.parse(line);
+  } catch {
+    return;
+  }
+
+  if (record.type === "assistant") {
+    const { id, model, usage } = record.message || {};
+    const at = Date.parse(record.timestamp);
+    if (!id || !usage || !Number.isFinite(at)) return;
+    const write = usage.cache_creation;
+    const cacheWrite = write
+      ? count(write.ephemeral_1h_input_tokens) * CACHE_WRITE_1H_WEIGHT + count(write.ephemeral_5m_input_tokens) * CACHE_WRITE_5M_WEIGHT
+      : count(usage.cache_creation_input_tokens) * CACHE_WRITE_1H_WEIGHT;
+    scan.turns.set(id, {
+      at,
+      model,
+      session: record.sessionId || null,
+      tokens: count(usage.input_tokens) + count(usage.output_tokens) * OUTPUT_WEIGHT
+        + count(usage.cache_read_input_tokens) * CACHE_READ_WEIGHT + cacheWrite
+    });
+  } else if (record.type === "cost-state" && record.modelUsage) {
+    // Cumulative for the session, so the newest record replaces the one before it.
+    scan.billed = new Map();
+    for (const [model, used] of Object.entries(record.modelUsage)) {
+      if (!Number.isFinite(used?.costUSD)) continue;
+      scan.billed.set(model, {
+        cost: used.costUSD,
+        tokens: count(used.inputTokens) + count(used.outputTokens) * OUTPUT_WEIGHT
+          + count(used.cacheReadInputTokens) * CACHE_READ_WEIGHT + count(used.cacheCreationInputTokens) * CACHE_WRITE_1H_WEIGHT
+      });
+    }
+  }
+}
+
+function count(value) {
+  return Number.isFinite(value) ? value : 0;
 }
 
 // ---------- shared ----------
@@ -222,12 +316,6 @@ function windowLabel(minutes) {
   if (minutes % 1440 === 0) return `${minutes / 1440} day${minutes === 1440 ? "" : "s"}`;
   if (minutes % 60 === 0) return `${minutes / 60} hour${minutes === 60 ? "" : "s"}`;
   return `${minutes} min`;
-}
-
-function endOfDay() {
-  const d = new Date();
-  d.setHours(24, 0, 0, 0);
-  return d.toISOString();
 }
 
 function round(value, digits = 1) {
