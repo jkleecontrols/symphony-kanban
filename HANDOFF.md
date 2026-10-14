@@ -76,9 +76,10 @@ pushed**. To use it: start a session in that folder and ask it to begin.
   got almost no animation frames. The same arithmetic, run separately, settles in 0.45 s
   without bounce. If it feels wrong, response and damping are the two numbers at the top
   of `springHome`.
-- **README is behind the product.** Its screenshots show five columns and no graph, and it
-  does not describe role menus, the graveyard or the plan-limit gauge. The marketing agent
-  has this on its list too.
+- **`docs/add-task.gif` predates the thread and role fields** in the new-task form. The
+  other screenshots were retaken on 2026-10-14. To retake any of them, run a second board
+  on another port against a separate tracker file of invented tasks (`~/code/api-gateway`,
+  `billing-service`, …), never the real one: the real board shows research folder names.
 - **Auto-dispatch is off everywhere.** It works, and a real run was verified end to end,
   but an agent is not confined to the task's folder — one test run edited files two
   directories away. Turn it on per card, on something that does not matter, watching.

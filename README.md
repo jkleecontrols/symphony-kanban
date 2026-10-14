@@ -10,7 +10,7 @@ It is an independent implementation of the [OpenAI Symphony](https://github.com/
 service specification (`SPEC.md` in that repository), not a port of its Elixir reference.
 Where it departs from the spec, and why, is at the end of this file.
 
-![The board: a card per project folder, with live session indicators and the result of each finished run](docs/board.jpg)
+![The board: four columns of cards, one per project folder, each with its AI, role, thread, branch and the result of its last run](docs/board.jpg)
 
 ## What it does
 
@@ -26,6 +26,9 @@ project's checks still pass. A session waiting on an answer says what it asked.
 
 **Asks for you when it needs you.** Desktop notifications rather than a board you have to
 keep looking at.
+
+**Shows how the work fits together.** A graph of project → thread → session, with each
+session's role and the dependencies between them drawn as arrows.
 
 ## Setup
 
@@ -78,7 +81,10 @@ and setting its `role`. The board fills in `project` (the repository every workt
 and `branch_name` on each poll, shows both on the card, and the filter in the top bar
 narrows the board to one project.
 
-`role` is a free label — `experiment`, `review` — that says what a card is for.
+`role` says what a card's session is for — one worktree plans, another implements. Every
+card, on the board and on the graph, has a menu for it with the usual roles: `plan`,
+`implement`, `explore`, `experiment`, `review`, `main`. Any other role typed into a card's
+edit form joins that menu.
 
 `thread` is the question several cards are chasing. A project is a repository; a thread is
 an open question inside it, and the worktrees exploring that question carry the same thread
@@ -191,7 +197,8 @@ log. Claude Code supplies its plan limits to a status line command; add this to
 ```
 
 The command writes the latest limits to the ignored `data/claude-limits.json` and prints
-the usage line in Claude Code. Its snapshot refreshes while a Claude session is open. If
+the usage line in Claude Code. The ring then shows the same session and weekly
+percentages as Claude's own usage screen, refreshed while a Claude session is open. If
 there is no snapshot yet, the board estimates dollar spend from each assistant turn's
 tokens. Set `usage.budgets.claude.weekly_usd` and `monthly_usd` in `WORKFLOW.md` to compare
 that fallback estimate with your own budget; those budgets are not Claude plan limits.
@@ -199,13 +206,24 @@ that fallback estimate with your own budget; those budgets are not Claude plan l
 ## Graph
 
 `Graph` in the top bar switches the board to a project → thread → card map. The project
-filter applies to both views. Each card shows its state, assigned AI and branch; a green
-dot means a session is live in that folder.
+filter applies to both views. Each card shows its AI and branch, a dot coloured by its
+column, and its role as a menu along the top edge.
+
+![The graph: projects on the left, threads in the middle, cards on the right with role menus; arrows run from billing-service (plan) to billing-service-impl (implement) to billing-service-review (review), and a Done box sits in the corner](docs/graph.jpg)
 
 Drag the dot on the right of card A to card B to draw A → B. That arrow means B depends on
 A: B's `blocked_by` list is saved, and auto-dispatch waits until A reaches a terminal
 state. Click an arrow to remove it. The API rejects a dependency on the same card, an
-unknown card, or a cycle. Drag a card onto a thread to assign it to that thread.
+unknown card, or a cycle. Cards in a thread are ordered with what they depend on first, so
+a plan sits above the implementation that waits for it.
+
+Drag a card onto a thread to assign it to that thread. A card let go anywhere else springs
+back to its place.
+
+Work you are finished with does not need to stay in view. The `Done` box in the corner of
+the graph is a graveyard: drag a card, or a whole project, onto it and the card moves to
+Done and is no longer drawn. Open the box to see what is there; `Bring back` returns a card
+to Archive.
 
 ## Proof of work
 
@@ -220,7 +238,7 @@ failed with its output kept, since that is the output most worth reading. A task
 check command still records its diff and says plainly that no check was configured rather
 than implying success.
 
-![Two cards side by side: one with a green PASS badge reading "1 commit, 4 files, +128/-17 · checks passed", one with a red FAIL badge showing the failing test output](docs/proof-of-work.png)
+![Two cards side by side with their evidence open: a green PASS reading "1 commit, 4 files, +128/-17 · checks passed" with npm test exiting 0, and a red FAIL showing pytest's failing test output](docs/proof-of-work.png)
 
 A task carries its own `verify_command`; `verify.command` is the fallback. Evidence lives
 on the issue as `last_run`, so it survives a restart, and
@@ -352,7 +370,7 @@ Timeouts matter here too. The defaults are sized for a real agent — a 15 minut
 ## Managing tasks
 
 `+ New Task` opens a form for title, description, priority, state, labels, assigned AI,
-check command, project folder and auto-dispatch. Each card has `Edit` for inline editing,
+check command, project folder, thread, role and auto-dispatch. Each card has `Edit` for inline editing,
 a two-step `Delete`, and `Done` for a card in Archive. Required labels from
 `tracker.required_labels` are added automatically. While a card is open for editing, the
 board pauses its three-second refresh so in-progress input is never overwritten.
@@ -367,6 +385,10 @@ button moves an Archive card there immediately.
 Three themes — Apple, Pink and Blue — switch from the top bar and are remembered per
 browser. Each is a block of custom properties at the top of `public/styles.css`; add a
 fourth by copying one and adding its name to `THEMES` in `public/app.js`.
+
+Buttons respond on the press, panels grow out of the translucent top bar, and a theme
+change cross-fades. The system settings for reduced motion, reduced transparency and
+higher contrast are each respected.
 
 ## HTTP API
 
