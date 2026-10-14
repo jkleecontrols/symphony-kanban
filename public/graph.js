@@ -55,10 +55,45 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, o
   let drag = null;
   let graveOpen = false;
   let last = null;
+  // A card on its way back to where it was picked up, which can be caught again mid-flight.
+  let returning = null;
+
+  // Let go somewhere that takes nothing, a card springs home from where it was released,
+  // at the speed it was moving. Damping 0.8 and response 0.4: the slight overshoot is
+  // earned by the throw.
+  function springHome(node, offset, velocity) {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return release(node);
+    const stiffness = (2 * Math.PI / 0.4) ** 2;
+    const damping = 4 * Math.PI * 0.8 / 0.4;
+    const state = { node, x: offset.x, y: offset.y, vx: velocity.x, vy: velocity.y, frame: 0 };
+    let before = performance.now();
+    const step = (now) => {
+      const dt = Math.min(0.032, (now - before) / 1000);
+      before = now;
+      // X and Y are separate springs, so unequal speeds do not drag each other off course.
+      state.vx += (-stiffness * state.x - damping * state.vx) * dt;
+      state.vy += (-stiffness * state.y - damping * state.vy) * dt;
+      state.x += state.vx * dt;
+      state.y += state.vy * dt;
+      if (Math.hypot(state.x, state.y) < 0.4 && Math.hypot(state.vx, state.vy) < 4) {
+        returning = null;
+        return release(node);
+      }
+      node.style.transform = `translate(${state.x}px, ${state.y}px)`;
+      state.frame = requestAnimationFrame(step);
+    };
+    returning = state;
+    state.frame = requestAnimationFrame(step);
+  }
+
+  function release(node) {
+    node.style.transform = "";
+    node.classList.remove("graph-held");
+  }
 
   function render(issues, { project = "", liveIds = new Set(), agents = new Map(), roles = [] } = {}) {
     // Redrawing would close a role menu the user has open.
-    if (drag || host.querySelector("select:focus")) return;
+    if (drag || returning || host.querySelector("select:focus")) return;
     last = [issues, { project, liveIds, agents, roles }];
     const inProject = project ? issues.filter((issue) => issue.project === project) : issues;
     // Done is where work goes to be out of sight: those cards are listed in the
@@ -195,7 +230,15 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, o
       const whole = event.target.closest("[data-project-node]");
       if (!handle && !card && !whole) return;
       const source = whole ? whole.dataset.projectNode : (handle || card).dataset.handle || card.dataset.card;
-      drag = { type: whole ? "project" : handle ? "link" : "card", source, pointerId: event.pointerId, start: point(event, canvas), moved: false };
+      const node = handle ? null : whole || card;
+      // Caught on its way home: carry on from where it is on screen, not from where it belongs.
+      let base = { x: 0, y: 0 };
+      if (returning && returning.node === node) {
+        cancelAnimationFrame(returning.frame);
+        base = { x: returning.x, y: returning.y };
+        returning = null;
+      }
+      drag = { type: whole ? "project" : handle ? "link" : "card", source, node, base, trail: [], pointerId: event.pointerId, start: point(event, canvas), moved: false };
       canvas.setPointerCapture(event.pointerId);
       event.preventDefault();
     });
@@ -203,6 +246,17 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, o
       if (!drag || event.pointerId !== drag.pointerId) return;
       const here = point(event, canvas);
       if (Math.hypot(here.x - drag.start.x, here.y - drag.start.y) > 8) drag.moved = true;
+      if (drag.node && drag.moved) {
+        // 1:1 with the pointer, from the spot it was grabbed by.
+        if (!drag.node.classList.contains("graph-held")) {
+          drag.node.classList.add("graph-held");
+          canvas.append(drag.node);
+        }
+        drag.offset = { x: drag.base.x + here.x - drag.start.x, y: drag.base.y + here.y - drag.start.y };
+        drag.node.style.transform = `translate(${drag.offset.x}px, ${drag.offset.y}px)`;
+        drag.trail.push({ ...drag.offset, t: performance.now() });
+        if (drag.trail.length > 5) drag.trail.shift();
+      }
       if (drag.type === "link" && drag.moved) {
         preview.removeAttribute("hidden");
         preview.setAttribute("d", `M ${CARD_X + CARD_W + 10} ${positions.get(drag.source)} L ${here.x} ${here.y}`);
@@ -219,8 +273,22 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, o
       const operation = drag;
       drag = null;
       preview.setAttribute("hidden", "");
-      if (!operation.moved) return;
+      if (!operation.moved) {
+        if (operation.node && (operation.base.x || operation.base.y)) springHome(operation.node, operation.base, { x: 0, y: 0 });
+        return;
+      }
       const target = document.elementFromPoint(event.clientX, event.clientY);
+      const lands = operation.node && target?.closest?.(operation.type === "card" ? "[data-thread], [data-graveyard]" : "[data-graveyard]");
+      if (operation.node && lands) {
+        operation.node.classList.add("graph-dropped");
+      } else if (operation.node) {
+        // Hand the pointer's speed to the spring, so there is no seam between drag and return.
+        const [first] = operation.trail;
+        const final = operation.trail.at(-1);
+        const span = first && final ? (final.t - first.t) / 1000 : 0;
+        const velocity = span > 0 ? { x: (final.x - first.x) / span, y: (final.y - first.y) / span } : { x: 0, y: 0 };
+        springHome(operation.node, operation.offset, velocity);
+      }
       const card = target?.closest?.("[data-card]");
       const thread = target?.closest?.("[data-thread]");
       const grave = target?.closest?.("[data-graveyard]");
@@ -231,8 +299,17 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, o
         if (operation.type === "link" && card && card.dataset.card !== operation.source) await onConnect(operation.source, card.dataset.card);
         if (operation.type === "card" && thread) await onThreadDrop(operation.source, thread.dataset.thread, thread.dataset.project);
       } catch (error) { onError(error); }
+      // Still on screen means the drop changed nothing and nothing was redrawn: put it back.
+      if (operation.node?.isConnected && operation.node.classList.contains("graph-dropped")) {
+        operation.node.classList.remove("graph-dropped");
+        release(operation.node);
+      }
     });
-    canvas.addEventListener("pointercancel", () => { drag = null; preview.setAttribute("hidden", ""); });
+    canvas.addEventListener("pointercancel", () => {
+      if (drag?.node) release(drag.node);
+      drag = null;
+      preview.setAttribute("hidden", "");
+    });
     canvas.addEventListener("click", async (event) => {
       const hit = event.target.closest("[data-source][data-target]");
       if (!hit) return;

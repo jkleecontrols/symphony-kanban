@@ -1040,3 +1040,133 @@ pre,
 
 .activity-what { grid-column: 1; }
 .activity-say { grid-column: 1; color: var(--muted); }
+
+/* --- motion and materials ---
+   After Apple's guidance on fluid interfaces. Controls answer on the press, not the
+   release. Things settle like a spring with no overshoot, and bounce only where a gesture
+   carried momentum into them. The top bar is a material the page scrolls under. Type
+   tightens as it grows. */
+:root {
+  /* A critically damped spring sampled as an easing curve: no overshoot. */
+  --spring: linear(0, 0.066, 0.203, 0.355, 0.496, 0.616, 0.713, 0.788, 0.845, 0.888, 0.92, 0.943, 0.96, 0.971, 0.98, 0.986, 0.99, 0.993, 0.995, 0.997, 0.998, 0.998, 0.999, 0.999, 1);
+  /* Damping 0.8: a slight overshoot, for what a drag or a drop sets moving. */
+  --spring-bounce: linear(0, 0.11, 0.326, 0.546, 0.726, 0.854, 0.935, 0.982, 1.005, 1.014, 1.015, 1.012, 1.009, 1.006, 1.003, 1.002, 1.001, 1);
+  --settle: 0.45s;
+}
+
+/* Response: feedback lives on the press and is immediate. */
+button,
+select {
+  transition: transform 0.1s ease-out, background 0.15s ease, border-color 0.15s ease, box-shadow 0.2s ease;
+}
+button:active { transform: scale(0.97); }
+.themes button { transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease-out; }
+
+/* Material: translucent chrome, with the page passing underneath it. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-bottom-color: color-mix(in srgb, var(--line) 55%, transparent);
+}
+
+/* Type: large text is tracked tighter and led tighter; small text is left open. */
+h1 { letter-spacing: -0.024em; line-height: 1.1; }
+h2 { letter-spacing: -0.012em; line-height: 1.2; }
+.metric strong { letter-spacing: -0.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.metric span, .graph-card-meta, .graph-help { letter-spacing: 0.01em; }
+
+/* Panels arrive as a surface, growing out of the bar that opened them, and leave the
+   same way. */
+.composer,
+.usage,
+.activity {
+  transform-origin: top right;
+  transition: opacity 0.2s ease, transform var(--settle) var(--spring), display 0.2s allow-discrete;
+}
+.composer[hidden],
+.usage[hidden],
+.activity[hidden] {
+  opacity: 0;
+  transform: scale(0.97) translateY(-8px);
+}
+@starting-style {
+  .composer, .usage, .activity { opacity: 0; transform: scale(0.97) translateY(-8px); }
+}
+
+/* Switching between the board and the graph: the incoming view settles into place. */
+.board,
+.graph {
+  transition: opacity 0.25s ease, transform var(--settle) var(--spring);
+}
+@starting-style {
+  .board, .graph { opacity: 0; transform: translateY(10px) scale(0.995); }
+}
+
+/* Cards lift towards the pointer. */
+.card,
+.metric {
+  transition: transform var(--settle) var(--spring), box-shadow 0.25s ease;
+}
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
+/* The graph: what is being dragged stays under the pointer, lifted and slightly
+   see-through so what it passes over can still be read. */
+.graph-node rect,
+.graph-thread rect { transition: stroke-width 0.15s ease, stroke 0.15s ease, fill 0.15s ease; }
+.graph-handle {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.3s var(--spring-bounce);
+}
+.graph-handle:hover { transform: scale(1.3); }
+.graph-held {
+  pointer-events: none;
+  opacity: 0.88;
+  cursor: grabbing;
+  filter: drop-shadow(0 12px 18px color-mix(in srgb, var(--ink) 22%, transparent));
+}
+.graph-dropped {
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.graph-grave {
+  transform-origin: bottom right;
+  transition: transform 0.4s var(--spring-bounce), background 0.15s ease, border-color 0.15s ease, box-shadow 0.2s ease;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%);
+}
+.graph-grave ul { transform-origin: bottom right; transition: opacity 0.2s ease, transform var(--settle) var(--spring); }
+@starting-style {
+  .graph-grave ul { opacity: 0; transform: scale(0.94) translateY(8px); }
+}
+
+/* Changing theme cross-fades the whole page rather than snapping. */
+::view-transition-old(root),
+::view-transition-new(root) { animation-duration: 0.35s; }
+
+/* Reduced motion keeps the feedback and drops the travel: fades, no slides or springs. */
+@media (prefers-reduced-motion: reduce) {
+  button:active, .card:hover, .graph-handle:hover, .graph-grave-over { transform: none; }
+  .composer, .usage, .activity, .board, .graph, .graph-grave, .graph-grave ul, .card, .metric, .graph-handle {
+    transition: opacity 0.2s ease, background 0.15s ease, border-color 0.15s ease;
+    transform: none !important;
+  }
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.15s; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .topbar, .graph-grave { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-contrast: more) {
+  .topbar, .graph-grave { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--ink); }
+}
+/* A card dragged past the edge of the drawing is still drawn. */
+.graph svg { overflow: visible; }

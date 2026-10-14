@@ -79,7 +79,13 @@ const graph = createGraph(el("graph"), {
 applyTheme(storedTheme() || "apple");
 el("themes").addEventListener("click", (event) => {
   const pick = event.target.closest("[data-theme-pick]");
-  if (pick) applyTheme(pick.dataset.themePick);
+  if (!pick) return;
+  // Cross-fade the page into the new theme instead of snapping every colour at once.
+  if (!document.startViewTransition) return applyTheme(pick.dataset.themePick);
+  // A hidden tab skips the fade and rejects; the theme has been applied either way.
+  const fade = document.startViewTransition(() => applyTheme(pick.dataset.themePick));
+  fade.ready.catch(() => {});
+  fade.finished.catch(() => {});
 });
 
 el("activityToggle").addEventListener("click", () => {
