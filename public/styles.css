@@ -346,7 +346,20 @@ label.check input {
 .graph-project rect { fill: var(--accent-soft); stroke: var(--accent); }
 .graph-thread rect { fill: var(--raised); stroke: var(--accent-2); }
 .graph-node text { fill: var(--ink); font-size: 14px; font-weight: 600; pointer-events: none; }
-.graph-card { cursor: grab; touch-action: none; }
+.graph-card, .graph-project { cursor: grab; touch-action: none; }
+.graph-grave {
+  position: fixed; right: 28px; bottom: 24px; z-index: 5;
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+  min-width: 150px; max-width: 320px; padding: 10px;
+  background: var(--surface); border: 2px dashed var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.graph-grave-ready { border-color: var(--accent); }
+.graph-grave-over { border-style: solid; background: var(--accent-soft); transform: scale(1.06); }
+.graph-grave-toggle { padding: 10px 14px; border: 0; background: none; color: var(--muted); font: 600 13px var(--font); cursor: pointer; }
+.graph-grave ul { margin: 0; padding: 0; list-style: none; max-height: 50vh; overflow: auto; }
+.graph-grave li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 4px; color: var(--muted); font-size: 12px; }
+.graph-grave li button { padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); font: 11px var(--font); cursor: pointer; white-space: nowrap; }
 .graph-thread { cursor: default; }
 .graph-card rect:hover, .graph-thread rect:hover { stroke-width: 2.5; }
 .graph-card-meta { fill: var(--muted) !important; font-size: 11px !important; font-weight: 400 !important; }

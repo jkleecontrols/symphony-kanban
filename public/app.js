@@ -56,6 +56,18 @@ const graph = createGraph(el("graph"), {
     clearBanner();
     await refresh();
   },
+  // Done is the drawer nothing shows by default; a session starting in the folder again
+  // brings the card back on its own.
+  onBury: async (issueIds) => {
+    for (const id of issueIds) await send(`/api/issues/${encodeURIComponent(id)}`, "PATCH", { state: "Done" });
+    clearBanner();
+    await refresh();
+  },
+  onRestore: async (issueId) => {
+    await send(`/api/issues/${encodeURIComponent(issueId)}`, "PATCH", { state: "Archive" });
+    clearBanner();
+    await refresh();
+  },
   onRole: async (issueId, role) => {
     await send(`/api/issues/${encodeURIComponent(issueId)}`, "PATCH", { role: role || null });
     clearBanner();

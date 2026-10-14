@@ -51,13 +51,20 @@ export function orderCards(cards) {
   return [...cards].sort((a, b) => depthOf(a) - depthOf(b) || a.title.localeCompare(b.title));
 }
 
-export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, onError }) {
+export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, onBury, onRestore, onError }) {
   let drag = null;
+  let graveOpen = false;
+  let last = null;
 
   function render(issues, { project = "", liveIds = new Set(), agents = new Map(), roles = [] } = {}) {
     // Redrawing would close a role menu the user has open.
     if (drag || host.querySelector("select:focus")) return;
-    const visible = project ? issues.filter((issue) => issue.project === project) : issues;
+    last = [issues, { project, liveIds, agents, roles }];
+    const inProject = project ? issues.filter((issue) => issue.project === project) : issues;
+    // Done is where work goes to be out of sight: those cards are listed in the
+    // graveyard and drawn nowhere else.
+    const buried = inProject.filter((issue) => issue.state.toLowerCase() === "done");
+    const visible = inProject.filter((issue) => issue.state.toLowerCase() !== "done");
     const groups = new Map();
     for (const issue of visible) {
       const key = issue.project || "";
@@ -92,16 +99,17 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, o
     const height = Math.max(420, y + 40);
     const width = 1130;
     host.replaceChildren();
+    host.append(graveyard(buried));
     if (!visible.length) {
       const empty = document.createElement("p");
       empty.className = "graph-empty";
-      empty.textContent = "No cards in this project.";
+      empty.textContent = buried.length ? "Everything here is in Done." : "No cards in this project.";
       host.append(empty);
       return;
     }
     const help = document.createElement("p");
     help.className = "graph-help";
-    help.textContent = "Drag the dot on a card to another card to set a dependency. Click an arrow to remove it. Drag a card onto a thread to move it.";
+    help.textContent = "Drag the dot on a card to another card to set a dependency. Click an arrow to remove it. Drag a card onto a thread to move it. Drag a card or a project onto Done to put it away.";
     host.append(help);
     const canvas = svg("svg", { viewBox: `0 0 ${width} ${height}`, width, height, role: "img", "aria-label": "Project, thread and task dependencies" });
     const defs = svg("defs");
@@ -137,10 +145,10 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, o
     canvas.append(dependencies);
 
     for (const row of projectRows) {
-      const node = svg("g", { class: "graph-node graph-project" });
+      const node = svg("g", { class: "graph-node graph-project", "data-project-node": row.project });
       node.append(svg("rect", { x: 30, y: row.y - 25, width: 220, height: 50, rx: 12 }));
       node.append(svg("text", { x: 44, y: row.y + 5 }, short(projectName(row.project), 23)));
-      node.append(svg("title", {}, row.project || "Unassigned project"));
+      node.append(svg("title", {}, `${row.project || "Unassigned project"} — drag onto Done to put every card away`));
       canvas.append(node);
     }
     for (const row of threadRows) {
@@ -184,8 +192,10 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, o
       if (event.target.closest("select")) return;
       const handle = event.target.closest("[data-handle]");
       const card = event.target.closest("[data-card]");
-      if (!handle && !card) return;
-      drag = { type: handle ? "link" : "card", source: (handle || card).dataset.handle || card.dataset.card, pointerId: event.pointerId, start: point(event, canvas), moved: false };
+      const whole = event.target.closest("[data-project-node]");
+      if (!handle && !card && !whole) return;
+      const source = whole ? whole.dataset.projectNode : (handle || card).dataset.handle || card.dataset.card;
+      drag = { type: whole ? "project" : handle ? "link" : "card", source, pointerId: event.pointerId, start: point(event, canvas), moved: false };
       canvas.setPointerCapture(event.pointerId);
       event.preventDefault();
     });
@@ -197,6 +207,12 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, o
         preview.removeAttribute("hidden");
         preview.setAttribute("d", `M ${CARD_X + CARD_W + 10} ${positions.get(drag.source)} L ${here.x} ${here.y}`);
       }
+      if (drag.type !== "link" && drag.moved) {
+        // The pointer is captured by the canvas, so the graveyard never sees a hover.
+        const grave = host.querySelector("[data-graveyard]");
+        grave.classList.add("graph-grave-ready");
+        grave.classList.toggle("graph-grave-over", Boolean(document.elementFromPoint(event.clientX, event.clientY)?.closest?.("[data-graveyard]")));
+      }
     });
     canvas.addEventListener("pointerup", async (event) => {
       if (!drag || event.pointerId !== drag.pointerId) return;
@@ -207,7 +223,11 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, o
       const target = document.elementFromPoint(event.clientX, event.clientY);
       const card = target?.closest?.("[data-card]");
       const thread = target?.closest?.("[data-thread]");
+      const grave = target?.closest?.("[data-graveyard]");
+      host.querySelector("[data-graveyard]").classList.remove("graph-grave-ready", "graph-grave-over");
       try {
+        if (operation.type === "card" && grave) await onBury([operation.source]);
+        if (operation.type === "project" && grave) await onBury(visible.filter((issue) => (issue.project || "") === operation.source).map((issue) => issue.id));
         if (operation.type === "link" && card && card.dataset.card !== operation.source) await onConnect(operation.source, card.dataset.card);
         if (operation.type === "card" && thread) await onThreadDrop(operation.source, thread.dataset.thread, thread.dataset.project);
       } catch (error) { onError(error); }
@@ -234,6 +254,48 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, o
       try { await onRemove(hit.dataset.source, hit.dataset.target); }
       catch (error) { onError(error); }
     });
+  }
+
+  // Fixed to the corner of the window, so it is a drop target however far the graph scrolls.
+  function graveyard(buried) {
+    const box = document.createElement("div");
+    box.className = "graph-grave";
+    box.dataset.graveyard = "";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "graph-grave-toggle";
+    toggle.textContent = `Done · ${buried.length}`;
+    toggle.title = "Drop a card or a project here to put it away. Click to see what is in here.";
+    toggle.setAttribute("aria-expanded", String(graveOpen));
+    toggle.addEventListener("click", () => {
+      graveOpen = !graveOpen;
+      if (last) render(...last);
+    });
+    box.append(toggle);
+    if (!graveOpen) return box;
+
+    const list = document.createElement("ul");
+    for (const issue of orderCards(buried)) {
+      const item = document.createElement("li");
+      const name = document.createElement("span");
+      name.textContent = issue.title;
+      const back = document.createElement("button");
+      back.type = "button";
+      back.textContent = "Bring back";
+      back.addEventListener("click", async () => {
+        try { await onRestore(issue.id); }
+        catch (error) { onError(error); }
+      });
+      item.append(name, back);
+      list.append(item);
+    }
+    if (!buried.length) {
+      const item = document.createElement("li");
+      item.textContent = "Nothing put away.";
+      list.append(item);
+    }
+    box.prepend(list);
+    return box;
   }
 
   return { render };
