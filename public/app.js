@@ -14,6 +14,7 @@ let deleteArmedId = null;
 const openDrawers = new Set();
 const openEvidence = new Set();
 const replyDrafts = new Map();
+const ROLES = ["plan", "implement", "explore", "experiment", "review", "main"];
 let usage = null;
 let usageOpen = false;
 let projectFilter = "";
@@ -52,6 +53,11 @@ const graph = createGraph(el("graph"), {
     const issue = issues.find((item) => item.id === issueId);
     if (!issue || issue.thread === thread && issue.project === project) return;
     await send(`/api/issues/${encodeURIComponent(issueId)}`, "PATCH", { thread, project: project || null });
+    clearBanner();
+    await refresh();
+  },
+  onRole: async (issueId, role) => {
+    await send(`/api/issues/${encodeURIComponent(issueId)}`, "PATCH", { role: role || null });
     clearBanner();
     await refresh();
   },
@@ -289,7 +295,7 @@ async function onBoardChange(event) {
   const field = event.target.closest("[data-inline]");
   if (!field) return;
   const { inline, issueId } = field.dataset;
-  const body = inline === "state" ? { state: field.value } : { agent: field.value || null };
+  const body = inline === "state" ? { state: field.value } : { [inline]: field.value || null };
 
   try {
     await send(`/api/issues/${encodeURIComponent(issueId)}`, "PATCH", body);
@@ -536,7 +542,7 @@ function renderView() {
     if (sessions.length) liveIds.add(issue.id);
     agents.set(issue.id, currentAgent(issue, claimByIssue.get(issue.id), sessions));
   }
-  graph.render(issues, { project: projectFilter, liveIds, agents });
+  graph.render(issues, { project: projectFilter, liveIds, agents, roles: roleOptions() });
 }
 
 function terminalDrawer(state, cards, draw) {
@@ -592,6 +598,10 @@ function card(issue, claim, failure, external = []) {
         <select data-inline="agent" data-issue-id="${escapeAttr(issue.id)}" title="AI for automatic dispatch">
           <option value="">No AI</option>
           ${agentOptions().map((option) => `<option value="${escapeAttr(option.value)}" ${option.value === issue.agent ? "selected" : ""}>${escapeHtml(option.text)}</option>`).join("")}
+        </select>
+        <select data-inline="role" data-issue-id="${escapeAttr(issue.id)}" title="What this session is for">
+          <option value="">No role</option>
+          ${roleOptions().map((role) => `<option value="${escapeAttr(role)}" ${role === issue.role ? "selected" : ""}>${escapeHtml(role)}</option>`).join("")}
         </select>
       </div>
       <div class="card-actions">
@@ -772,6 +782,13 @@ function relativeTime(iso) {
 
 function canMarkDone(issue) {
   return lower(issue.state) === "archive";
+}
+
+// The usual roles, plus any typed by hand into a card's edit form, so a custom one can be
+// picked again elsewhere.
+function roleOptions() {
+  const custom = issues.map((issue) => issue.role).filter((role) => role && !ROLES.includes(role));
+  return [...ROLES, ...[...new Set(custom)].sort()];
 }
 
 function agentOptions() {

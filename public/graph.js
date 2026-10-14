@@ -2,6 +2,7 @@ const NS = "http://www.w3.org/2000/svg";
 const CARD_X = 650;
 const CARD_W = 250;
 const ROW = 82;
+const ROLE_W = 104;
 
 function svg(tag, attrs = {}, label = null) {
   const node = document.createElementNS(NS, tag);
@@ -33,11 +34,29 @@ function linkPath(from, to, lane) {
   return `M ${out} ${from} C ${bend} ${from}, ${bend} ${to}, ${out} ${to}`;
 }
 
-export function createGraph(host, { onConnect, onRemove, onThreadDrop, onError }) {
+// Within a thread, a card sits below everything it depends on, so arrows run downwards
+// and a plan reads above the work that carries it out.
+export function orderCards(cards) {
+  const byId = new Map(cards.map((card) => [card.id, card]));
+  const depths = new Map();
+  const depthOf = (card, seen = new Set()) => {
+    if (depths.has(card.id)) return depths.get(card.id);
+    if (seen.has(card.id)) return 0;
+    seen.add(card.id);
+    const blockers = (card.blocked_by || []).map((blocker) => byId.get(blocker.id)).filter(Boolean);
+    const depth = blockers.length ? 1 + Math.max(...blockers.map((blocker) => depthOf(blocker, seen))) : 0;
+    depths.set(card.id, depth);
+    return depth;
+  };
+  return [...cards].sort((a, b) => depthOf(a) - depthOf(b) || a.title.localeCompare(b.title));
+}
+
+export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, onError }) {
   let drag = null;
 
-  function render(issues, { project = "", liveIds = new Set(), agents = new Map() } = {}) {
-    if (drag) return;
+  function render(issues, { project = "", liveIds = new Set(), agents = new Map(), roles = [] } = {}) {
+    // Redrawing would close a role menu the user has open.
+    if (drag || host.querySelector("select:focus")) return;
     const visible = project ? issues.filter((issue) => issue.project === project) : issues;
     const groups = new Map();
     for (const issue of visible) {
@@ -58,7 +77,7 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onError }
       const first = y;
       for (const [thread, cards] of [...threads].sort(([a], [b]) => a.localeCompare(b))) {
         const start = y;
-        for (const issue of cards.sort((a, b) => a.title.localeCompare(b.title))) {
+        for (const issue of orderCards(cards)) {
           positions.set(issue.id, y);
           rows.push({ issue, y, thread, project: name });
           y += ROW;
@@ -137,9 +156,24 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onError }
       node.append(svg("rect", { x: CARD_X, y: row.y - 29, width: CARD_W, height: 58, rx: 12 }));
       node.append(svg("circle", { cx: CARD_X + 15, cy: row.y - 12, r: 5, class: liveIds.has(issue.id) ? "graph-live" : `graph-state-${issue.state.toLowerCase().replace(/[^a-z]+/g, "-")}` }));
       node.append(svg("text", { x: CARD_X + 28, y: row.y - 8, class: "graph-card-title" }, short(issue.title, 28)));
+      // What this session is for: a menu on the card's top edge, so it costs the title no room.
+      const frame = svg("foreignObject", { x: CARD_X + CARD_W - 24 - ROLE_W, y: row.y - 40, width: ROLE_W, height: 22 });
+      const select = document.createElement("select");
+      select.className = issue.role ? "graph-role" : "graph-role graph-role-unset";
+      select.dataset.role = issue.id;
+      select.title = `Role of ${issue.title}`;
+      for (const role of ["", ...new Set([...roles, issue.role].filter(Boolean))]) {
+        const option = document.createElement("option");
+        option.value = role;
+        option.textContent = role || "role…";
+        option.selected = role === (issue.role || "");
+        select.append(option);
+      }
+      frame.append(select);
+      node.append(frame);
       node.append(svg("text", { x: CARD_X + 15, y: row.y + 14, class: "graph-card-meta" }, short([issue.identifier, agents.get(issue.id) || issue.agent, issue.branch_name].filter(Boolean).join(" · "), 39)));
       node.append(svg("circle", { cx: CARD_X + CARD_W, cy: row.y, r: 10, class: "graph-handle", "data-handle": issue.id, role: "button", "aria-label": `Draw dependency from ${issue.title}` }));
-      node.append(svg("title", {}, `${issue.title} — drag card to a thread, or drag the handle to another card`));
+      node.append(svg("title", {}, `${issue.title}${issue.role ? ` (${issue.role})` : ""} — drag card to a thread, or drag the handle to another card`));
       canvas.append(node);
     }
     const preview = svg("path", { class: "graph-preview", hidden: "" });
@@ -147,6 +181,7 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onError }
     host.append(canvas);
 
     canvas.addEventListener("pointerdown", (event) => {
+      if (event.target.closest("select")) return;
       const handle = event.target.closest("[data-handle]");
       const card = event.target.closest("[data-card]");
       if (!handle && !card) return;
@@ -182,6 +217,13 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onError }
       const hit = event.target.closest("[data-source][data-target]");
       if (!hit) return;
       try { await onRemove(hit.dataset.source, hit.dataset.target); }
+      catch (error) { onError(error); }
+    });
+    canvas.addEventListener("change", async (event) => {
+      const select = event.target.closest("[data-role]");
+      if (!select) return;
+      select.blur();
+      try { await onRole(select.dataset.role, select.value); }
       catch (error) { onError(error); }
     });
     canvas.addEventListener("keydown", async (event) => {

@@ -40,3 +40,15 @@ test("dependency arrows persist and cannot create a cycle", async () => {
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("cards in a thread are listed with what they depend on first", async () => {
+  const { orderCards } = await import("../public/graph.js");
+  const cards = [
+    { id: "c", title: "a-review", blocked_by: [{ id: "b" }] },
+    { id: "b", title: "dissertation-impl", blocked_by: [{ id: "a" }] },
+    { id: "a", title: "ofpp-plan", blocked_by: [] },
+    { id: "d", title: "another-root", blocked_by: [{ id: "elsewhere" }] }
+  ];
+
+  assert.deepEqual(orderCards(cards).map((card) => card.id), ["d", "a", "b", "c"]);
+});
