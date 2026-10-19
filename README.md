@@ -186,8 +186,10 @@ Codex thread once it has a name. The board reads each name from the CLI's own re
   own terminal to install the skill where its CLI looks for skills, and to use it.
 
 Typing into a terminal works for iTerm and Terminal, only for a session the board can see
-running, and only from the board's own page. The first time, macOS asks whether the
-board's process may control iTerm.
+running, and only from the board's own page. It uses the same macOS permission to control
+iTerm as the `Terminal` button, so once that button has worked there is nothing more to
+allow. The text goes in first and return a moment later, which Claude Code takes as a
+typed line rather than a paste.
 
 ## Activity
 

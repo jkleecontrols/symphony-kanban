@@ -78,11 +78,10 @@ the iTerm tab matched by tty (`typeInto` in `src/terminal.js`).
 
 ## Open
 
-- **Typing into a terminal was never watched end to end.** The page, the API guards and
-  the graph were checked; the AppleScript itself timed out when run from a Claude shell,
-  probably waiting on macOS's automation prompt. Try `Name it` on one session and watch the
-  tab. If Claude Code takes the line as a paste and does not send it, the 0.3 s delay
-  before return in `itermTypeScript` is the number to raise.
+- **Typing into a terminal is verified for `Name it` on a Claude Code session** in
+  iTerm (2026-10-19): the line arrived and was sent, with no new permission prompt. Not yet
+  watched: `/rename` in a Codex session, and the `Skills` panel. If a CLI takes the line as
+  a paste and does not send it, raise the 0.3 s delay in `itermTypeScript`.
 
 - **`scripts/vault-sync.js` has an uncommitted change** left by a Codex session. Nobody in
   the later sessions wrote it or reviewed it. Read the diff before committing or
