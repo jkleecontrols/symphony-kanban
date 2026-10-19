@@ -7,7 +7,8 @@ import { scanExternalSessions, sessionsForPath } from "./sessions.js";
 import { suggestCommand } from "./verify.js";
 import { canReplyTo, sendReply } from "./reply.js";
 import { runVerification } from "./verify.js";
-import { openOrRaise } from "./terminal.js";
+import { openOrRaise, typeInto } from "./terminal.js";
+import { skillPrompt, validSessionName, validSkillUrl } from "./peers.js";
 import { collectUsage } from "./usage.js";
 import { buildActivity } from "./activity.js";
 import { isStale } from "./sessions.js";
@@ -65,6 +66,15 @@ export function createServer(orchestrator, logger) {
         const created = await createIssue(orchestrator, await readJson(req));
         logger.event("info", "issue_created", { issue_id: created.id, identifier: created.identifier, agent: created.agent });
         return json(res, { ok: true, issue: created }, 201);
+      }
+
+      if (url.pathname === "/api/sessions/rename" && req.method === "POST") {
+        assertSameOrigin(req);
+        return json(res, await renameSession(orchestrator, await readJson(req)));
+      }
+      if (url.pathname === "/api/sessions/skill" && req.method === "POST") {
+        assertSameOrigin(req);
+        return json(res, await applySkill(orchestrator, await readJson(req)));
       }
 
       if (url.pathname === "/api/poll" && req.method === "POST") {
@@ -183,6 +193,66 @@ async function openTerminalFor(orchestrator, issueId) {
     issue_id: issue.id, identifier: issue.identifier, ...result
   });
   return { ok: true, ...result, folder: issue.workspace_path };
+}
+
+// Typing into a terminal is as good as being the person at it, so a page on another site
+// must not be able to make the browser do it. A JSON body already forces a preflight this
+// server never answers; the origin check is the second lock.
+function assertSameOrigin(req) {
+  const origin = req.headers.origin;
+  if (origin && hostOf(origin) !== req.headers.host) {
+    const error = new Error("cross-origin requests cannot type into a terminal");
+    error.status = 403;
+    throw error;
+  }
+  if (!String(req.headers["content-type"] || "").startsWith("application/json")) throw invalid("send JSON");
+}
+
+function hostOf(origin) {
+  try {
+    return new URL(origin).host;
+  } catch {
+    return null;
+  }
+}
+
+// Only a session the board can see right now can be typed into, so a stale pid that has
+// since been reused by something else is never written to.
+async function liveSession(orchestrator, pid) {
+  const names = orchestrator.config.sessions.names;
+  const sessions = await scanExternalSessions(names.length ? names : undefined);
+  const session = sessions.find((candidate) => candidate.pid === String(pid));
+  if (!session) throw invalid(`no running session with pid ${pid}`);
+  return session;
+}
+
+async function renameSession(orchestrator, body) {
+  if (!orchestrator.config.terminal.enabled) throw invalid("terminal control is disabled in WORKFLOW.md");
+  const name = validSessionName(body.name);
+  if (!name) throw invalid("a name is letters, digits, spaces, dots, dashes and underscores, up to 48");
+  const session = await liveSession(orchestrator, body.pid);
+  const result = await typeInto(session.pid, `/rename ${name}`);
+  orchestrator.logger.event("info", "session_renamed", { pid: session.pid, agent: session.name, name, ...result });
+  return { ok: true, pid: session.pid, name, ...result };
+}
+
+async function applySkill(orchestrator, body) {
+  if (!orchestrator.config.terminal.enabled) throw invalid("terminal control is disabled in WORKFLOW.md");
+  const url = validSkillUrl(body.url);
+  if (!url) throw invalid("paste a GitHub link, like https://github.com/owner/repo/tree/main/skills/name");
+  const pids = [...new Set((Array.isArray(body.pids) ? body.pids : []).map(String))];
+  if (!pids.length) throw invalid("pick at least one session");
+  const results = [];
+  for (const pid of pids) {
+    try {
+      const session = await liveSession(orchestrator, pid);
+      results.push({ pid, ok: true, ...await typeInto(session.pid, skillPrompt(url)) });
+    } catch (error) {
+      results.push({ pid, ok: false, error: error.message });
+    }
+  }
+  orchestrator.logger.event("info", "skill_sent", { url, sent: results.filter((r) => r.ok).length, of: results.length });
+  return { ok: results.every((result) => result.ok), url, results };
 }
 
 async function findIssue(orchestrator, issueId) {

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { peersIn } from "./peers.js";
 
 const TAIL_BYTES = 96 * 1024;
 const CODEX_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -16,7 +17,7 @@ const historyCache = new Map();
 // transcript; reading its tail is how the board reports live work it did not start.
 export async function readActivity(session, roots = {}) {
   try {
-    if (session.name === "claude") return await claudeActivity(session.cwd, roots.claude);
+    if (session.name === "claude") return await claudeActivity(session.cwd, roots.claude, session.session_id);
     if (session.name === "codex") return await codexActivity(session.cwd, roots.codex);
   } catch {
     // A transcript that cannot be read just means no detail for this card.
@@ -24,10 +25,13 @@ export async function readActivity(session, roots = {}) {
   return null;
 }
 
-async function claudeActivity(cwd, root) {
+async function claudeActivity(cwd, root, sessionId) {
   const dir = await claudeProjectDir(cwd, root);
   if (!dir) return null;
-  const file = await newestFile(dir, (name) => name.endsWith(".jsonl"));
+  // Two sessions in one folder each have their own transcript; the registry says which is
+  // whose. Without that, the newest one is the best guess.
+  const file = (sessionId && await fileInfo(path.join(dir, `${sessionId}.jsonl`)))
+    || await newestFile(dir, (name) => name.endsWith(".jsonl"));
   if (!file) return null;
 
   const records = await tailRecords(file.path);
@@ -58,6 +62,7 @@ async function claudeActivity(cwd, root) {
   const when = at || file.mtime;
   const phase = phaseOf(stopReason, lastText, when);
   return {
+    peers: peersIn(records),
     title,
     activity,
     at: when,
@@ -93,6 +98,15 @@ export async function claudeProjectDir(cwd, rootOverride) {
     if (first?.cwd === cwd) return candidate;
   }
   return null;
+}
+
+async function fileInfo(target) {
+  try {
+    const stat = await fs.stat(target);
+    return stat.isFile() ? { path: target, mtime: stat.mtime.toISOString() } : null;
+  } catch {
+    return null;
+  }
 }
 
 async function isDirectory(target) {

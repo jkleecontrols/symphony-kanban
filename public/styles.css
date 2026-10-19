@@ -192,7 +192,8 @@ main {
 }
 
 /* --- composer --- */
-.composer {
+.composer,
+.skills {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -201,7 +202,8 @@ main {
   box-shadow: var(--shadow);
 }
 
-.composer h2 {
+.composer h2,
+.skills h2 {
   font-size: 15px;
   font-weight: var(--weight-title);
   margin-bottom: 14px;
@@ -379,7 +381,7 @@ label.check input {
 .graph-dependency { fill: none; stroke: var(--accent-2); stroke-width: 2.5; pointer-events: none; }
 .graph-dependency-hit { fill: none; stroke: transparent; stroke-width: 16; cursor: pointer; }
 .graph-dependency-hit:hover, .graph-dependency-hit:focus { stroke: color-mix(in srgb, var(--accent-2) 25%, transparent); outline: none; }
-.graph-preview { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 6 5; pointer-events: none; }
+.graph-preview { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 6 5; pointer-events: visibleStroke; }
 
 .column {
   min-height: 300px;
@@ -956,6 +958,59 @@ pre,
 
 #projectFilter { max-width: 190px; }
 
+/* --- session names, who is talking to whom, and skills sent to terminals --- */
+.session-name {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.rename-form {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0 0;
+}
+.rename-form input { flex: 1; min-width: 0; padding: 4px 8px; font-size: 12px; }
+.rename-form button { padding: 4px 10px; font-size: 12px; white-space: nowrap; }
+.talk { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; }
+.talk-chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+.skills label { display: grid; gap: 6px; }
+.skills label input { width: 100%; }
+.skills .hint { margin: 10px 0; }
+.skill-sessions {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.skill-pick {
+  display: grid;
+  height: auto;
+  min-height: 0;
+  line-height: 1.3;
+  gap: 2px;
+  text-align: left;
+  padding: 9px 12px;
+}
+.skill-pick span { font-size: 11px; color: var(--muted); }
+.skill-pick[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.skill-results { margin: 10px 0 0; padding-left: 18px; font-size: 12px; }
+.skill-results .live { color: var(--ok); }
+.skill-results .error { color: var(--bad); }
+.graph-talk { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 6 5; pointer-events: visibleStroke; }
+.graph-talkhead { fill: var(--accent); }
+
 /* --- the question several cards share --- */
 .thread-badge {
   display: inline-block;
@@ -1082,19 +1137,21 @@ h2 { letter-spacing: -0.012em; line-height: 1.2; }
 /* Panels arrive as a surface, growing out of the bar that opened them, and leave the
    same way. */
 .composer,
+.skills,
 .usage,
 .activity {
   transform-origin: top right;
   transition: opacity 0.2s ease, transform var(--settle) var(--spring), display 0.2s allow-discrete;
 }
 .composer[hidden],
+.skills[hidden],
 .usage[hidden],
 .activity[hidden] {
   opacity: 0;
   transform: scale(0.97) translateY(-8px);
 }
 @starting-style {
-  .composer, .usage, .activity { opacity: 0; transform: scale(0.97) translateY(-8px); }
+  .composer, .skills, .usage, .activity { opacity: 0; transform: scale(0.97) translateY(-8px); }
 }
 
 /* Switching between the board and the graph: the incoming view settles into place. */
@@ -1156,7 +1213,7 @@ h2 { letter-spacing: -0.012em; line-height: 1.2; }
 /* Reduced motion keeps the feedback and drops the travel: fades, no slides or springs. */
 @media (prefers-reduced-motion: reduce) {
   button:active, .card:hover, .graph-handle:hover, .graph-grave-over { transform: none; }
-  .composer, .usage, .activity, .board, .graph, .graph-grave, .graph-grave ul, .card, .metric, .graph-handle {
+  .composer, .skills, .usage, .activity, .board, .graph, .graph-grave, .graph-grave ul, .card, .metric, .graph-handle {
     transition: opacity 0.2s ease, background 0.15s ease, border-color 0.15s ease;
     transform: none !important;
   }

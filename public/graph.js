@@ -91,10 +91,10 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, o
     node.classList.remove("graph-held");
   }
 
-  function render(issues, { project = "", liveIds = new Set(), agents = new Map(), roles = [] } = {}) {
+  function render(issues, { project = "", liveIds = new Set(), agents = new Map(), roles = [], talks = [] } = {}) {
     // Redrawing would close a role menu the user has open.
     if (drag || returning || host.querySelector("select:focus")) return;
-    last = [issues, { project, liveIds, agents, roles }];
+    last = [issues, { project, liveIds, agents, roles, talks }];
     const inProject = project ? issues.filter((issue) => issue.project === project) : issues;
     // Done is where work goes to be out of sight: those cards are listed in the
     // graveyard and drawn nowhere else.
@@ -151,6 +151,10 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, o
     const marker = svg("marker", { id: "graph-arrow", viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto" });
     marker.append(svg("path", { d: "M 0 0 L 10 5 L 0 10 z", class: "graph-arrowhead" }));
     defs.append(marker);
+    // One head that turns to face outwards at either end of a line.
+    const talkHead = svg("marker", { id: "graph-talk", viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" });
+    talkHead.append(svg("path", { d: "M 0 0 L 10 5 L 0 10 z", class: "graph-talkhead" }));
+    defs.append(talkHead);
     canvas.append(defs);
     const hierarchy = svg("g", { class: "graph-hierarchy" });
     const projectAt = new Map(projectRows.map((row) => [row.project, row.y]));
@@ -178,6 +182,17 @@ export function createGraph(host, { onConnect, onRemove, onThreadDrop, onRole, o
       dependencies.append(hit);
     }
     canvas.append(dependencies);
+
+    // Sessions messaging each other right now: a dashed line with a head at each end,
+    // drawn wider than the dependency arrows so the two never sit on top of each other.
+    const conversations = svg("g", { class: "graph-talks" });
+    for (const [a, b] of talks) {
+      if (!positions.has(a) || !positions.has(b)) continue;
+      const path = svg("path", { d: linkPath(positions.get(a), positions.get(b), 7 + conversations.childElementCount % 4), class: "graph-talk", "marker-start": "url(#graph-talk)", "marker-end": "url(#graph-talk)" });
+      path.append(svg("title", {}, `${byId.get(a)?.title} ⇄ ${byId.get(b)?.title}: messaging each other`));
+      conversations.append(path);
+    }
+    canvas.append(conversations);
 
     for (const row of projectRows) {
       const node = svg("g", { class: "graph-node graph-project", "data-project-node": row.project });

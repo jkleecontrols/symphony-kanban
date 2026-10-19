@@ -14,6 +14,10 @@ let deleteArmedId = null;
 const openDrawers = new Set();
 const openEvidence = new Set();
 const replyDrafts = new Map();
+const renameDrafts = new Map();
+const skillPicks = new Set();
+let skillOpen = false;
+let skillResults = null;
 const ROLES = ["plan", "implement", "explore", "experiment", "review", "main"];
 let usage = null;
 let usageOpen = false;
@@ -115,6 +119,21 @@ el("viewToggle").addEventListener("click", () => {
   renderView();
 });
 
+el("skillToggle").addEventListener("click", () => {
+  skillOpen = !skillOpen;
+  renderSkills();
+  if (skillOpen) el("skillUrl").focus();
+});
+el("skillPanel").addEventListener("click", (event) => {
+  const pick = event.target.closest("[data-skill-pick]");
+  if (!pick) return;
+  const pid = pick.dataset.skillPick;
+  if (skillPicks.has(pid)) skillPicks.delete(pid);
+  else skillPicks.add(pid);
+  renderSkills();
+});
+el("skillForm").addEventListener("submit", onSkillSubmit);
+
 el("refreshButton").addEventListener("click", () => refresh());
 el("usageGauges").addEventListener("click", (event) => {
   if (!event.target.closest(".gauge")) return;
@@ -135,6 +154,8 @@ boardEl.addEventListener("submit", onBoardSubmit);
 boardEl.addEventListener("input", (event) => {
   const form = event.target.closest("[data-reply-form]");
   if (form) replyDrafts.set(form.dataset.replyForm, event.target.value);
+  const rename = event.target.closest("[data-rename-form]");
+  if (rename) renameDrafts.set(rename.dataset.renameForm, event.target.value);
 });
 
 config = await fetchJson("/api/config");
@@ -160,12 +181,13 @@ async function refresh() {
   }
 
   if (editingId && !issues.some((issue) => issue.id === editingId)) editingId = null;
-  if (document.activeElement?.closest?.("[data-reply-form]")) return;
+  if (document.activeElement?.closest?.("[data-reply-form], [data-rename-form]")) return;
   if (deleteArmedId && !issues.some((issue) => issue.id === deleteArmedId)) deleteArmedId = null;
 
   refreshUsage();
   if (activityOpen) refreshActivity();
   renderMetrics();
+  renderSkills();
   el("freezeNotice").hidden = !editingId;
   if (!editingId) renderView();
   renderRuntime();
@@ -325,6 +347,26 @@ async function onBoardChange(event) {
 }
 
 async function onBoardSubmit(event) {
+  // Naming a session types `/rename <name>` into its terminal; the CLI keeps the name, and
+  // the board reads it back from there on the next refresh.
+  const renameForm = event.target.closest("[data-rename-form]");
+  if (renameForm) {
+    event.preventDefault();
+    const pid = renameForm.dataset.renameForm;
+    const name = renameForm.elements.name.value.trim();
+    if (!name) return;
+    try {
+      await send("/api/sessions/rename", "POST", { pid, name });
+    } catch (error) {
+      return showBanner(`Could not name the session: ${error.message}`);
+    }
+    clearBanner();
+    renameDrafts.delete(pid);
+    renameForm.elements.name.blur();
+    showBanner(`Sent /rename ${name} to its terminal.`);
+    return refresh();
+  }
+
   const replyForm = event.target.closest("[data-reply-form]");
   if (replyForm) {
     event.preventDefault();
@@ -560,7 +602,7 @@ function renderView() {
     if (sessions.length) liveIds.add(issue.id);
     agents.set(issue.id, currentAgent(issue, claimByIssue.get(issue.id), sessions));
   }
-  graph.render(issues, { project: projectFilter, liveIds, agents, roles: roleOptions() });
+  graph.render(issues, { project: projectFilter, liveIds, agents, roles: roleOptions(), talks: talkingCards() });
 }
 
 function terminalDrawer(state, cards, draw) {
@@ -785,7 +827,120 @@ function sessionLine(session) {
   return `
     <p class="meta live"><span class="live-dot"></span>${escapeHtml(head)}</p>
     ${session.activity ? `<p class="meta activity">${escapeHtml(session.activity)}</p>` : ""}
+    ${sessionName(session)}
+    ${talkLine(session)}
   `;
+}
+
+// Other sessions reach this one by its name, so a name nobody chose is offered for
+// renaming, with the folder's name as the suggestion.
+function sessionName(session) {
+  if (!session.tty) return "";
+  if (session.name_registered && session.session_name) {
+    return `<p class="session-name" title="Other sessions can message it by this name">🏷 ${escapeHtml(session.session_name)}</p>`;
+  }
+  const suggestion = String(session.cwd || "").split("/").filter(Boolean).at(-1) || "";
+  const draft = renameDrafts.get(session.pid) ?? suggestion;
+  return `
+    <form class="rename-form" data-rename-form="${escapeAttr(session.pid)}" autocomplete="off"
+      title="${escapeAttr(session.session_name ? `Now called ${session.session_name}, a name it picked itself` : "This session has no name yet")}">
+      <input name="name" type="text" value="${escapeAttr(draft)}" maxlength="48" aria-label="Name for this ${escapeAttr(session.name)} session">
+      <button type="submit">Name it</button>
+    </form>
+  `;
+}
+
+function talkLine(session) {
+  const peers = peersOf(session);
+  if (!peers.length) return "";
+  return `<p class="talk">${peers.map((peer) => `<span class="talk-chip" title="Messaged ${escapeAttr(relativeTime(peer.at))}">🔗 ${escapeHtml(peer.name)}</span>`).join("")}</p>`;
+}
+
+function liveSessions() {
+  const hours = config.session_stale_after_hours;
+  return (snapshot?.external_sessions || []).filter((session) => {
+    const at = Date.parse(session.at || "");
+    return !(Number.isFinite(hours) && hours > 0 && Number.isFinite(at) && Date.now() - at > hours * 3600000);
+  });
+}
+
+// A message leaves a trace on both sides only when both are Claude Code; read either side
+// as the pair talking, so the link shows on both cards.
+function peersOf(session) {
+  const peers = new Map((session.peers || []).map((peer) => [peer.name, peer]));
+  if (session.session_name) {
+    for (const other of liveSessions()) {
+      if (other === session) continue;
+      const mention = (other.peers || []).find((peer) => peer.name === session.session_name);
+      const name = other.session_name || other.name;
+      if (mention && !peers.has(name)) peers.set(name, { name, at: mention.at });
+    }
+  }
+  return [...peers.values()];
+}
+
+// Pairs of cards whose sessions are messaging each other, for the graph.
+function talkingCards() {
+  const live = liveSessions();
+  const cardOf = new Map();
+  for (const issue of issues) for (const session of sessionsFor(issue)) cardOf.set(session.pid, issue.id);
+  const pairs = new Map();
+  for (const session of live) {
+    for (const peer of session.peers || []) {
+      const other = live.find((candidate) => candidate.session_name === peer.name);
+      const a = cardOf.get(session.pid);
+      const b = other && cardOf.get(other.pid);
+      if (!a || !b || a === b) continue;
+      pairs.set([a, b].sort().join("\0"), [a, b].sort());
+    }
+  }
+  return [...pairs.values()];
+}
+
+// A skill is a GitHub link typed into the chosen sessions' terminals as a request to
+// install it and work with it from then on.
+function renderSkills() {
+  el("skillToggle").setAttribute("aria-expanded", String(skillOpen));
+  el("skillPanel").hidden = !skillOpen;
+  if (!skillOpen) return;
+  const live = liveSessions().filter((session) => session.tty);
+  for (const pid of skillPicks) if (!live.some((session) => session.pid === pid)) skillPicks.delete(pid);
+  const cardOf = new Map();
+  for (const issue of issues) for (const session of sessionsFor(issue)) cardOf.set(session.pid, issue);
+  el("skillSessions").innerHTML = live.length
+    ? live.map((session) => {
+      const issue = cardOf.get(session.pid);
+      const folder = String(session.cwd || "").split("/").filter(Boolean).at(-1) || session.cwd;
+      return `
+        <button type="button" class="skill-pick" data-skill-pick="${escapeAttr(session.pid)}" aria-pressed="${skillPicks.has(session.pid)}">
+          <strong>${escapeHtml(session.session_name || folder)}</strong>
+          <span>${escapeHtml(agentLabel(session.name))} · ${escapeHtml(issue ? issue.identifier : folder)}</span>
+        </button>`;
+    }).join("")
+    : '<p class="hint">No sessions are running.</p>';
+  const count = skillPicks.size;
+  const submit = el("skillForm").querySelector("[type=submit]");
+  submit.disabled = !count;
+  submit.textContent = count ? `Send to ${count} terminal${count === 1 ? "" : "s"}` : "Pick a session";
+  el("skillResults").innerHTML = (skillResults || []).map((result) => {
+    const session = live.find((candidate) => candidate.pid === result.pid);
+    const label = session?.session_name || session?.cwd?.split("/").at(-1) || `pid ${result.pid}`;
+    return `<li class="${result.ok ? "live" : "error"}">${escapeHtml(label)}: ${result.ok ? `typed into ${escapeHtml(result.app)}` : escapeHtml(result.error)}</li>`;
+  }).join("");
+}
+
+async function onSkillSubmit(event) {
+  event.preventDefault();
+  const url = el("skillUrl").value.trim();
+  if (!url || !skillPicks.size) return;
+  try {
+    const result = await send("/api/sessions/skill", "POST", { url, pids: [...skillPicks] });
+    skillResults = result.results;
+  } catch (error) {
+    return showBanner(`Could not send the skill: ${error.message}`);
+  }
+  clearBanner();
+  renderSkills();
 }
 
 function relativeTime(iso) {

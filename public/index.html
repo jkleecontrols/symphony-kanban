@@ -21,6 +21,7 @@
         <button id="composerToggle" type="button" class="primary">+ New Task</button>
         <button id="pollButton" type="button">Poll Now</button>
         <button id="activityToggle" type="button" aria-expanded="false">Activity</button>
+        <button id="skillToggle" type="button" aria-expanded="false">Skills</button>
         <button id="viewToggle" type="button" aria-pressed="false">Graph</button>
         <select id="projectFilter" title="Show one project"></select>
         <button id="refreshButton" type="button">Refresh</button>
@@ -88,6 +89,21 @@
         </form>
       </section>
 
+      <section class="skills" id="skillPanel" hidden>
+        <h2>Apply a skill</h2>
+        <form id="skillForm" autocomplete="off">
+          <label class="wide">
+            <span>Skill on GitHub <em>a repository, a skill's folder, or its SKILL.md</em></span>
+            <input id="skillUrl" type="url" required placeholder="https://github.com/emilkowalski/skills/blob/main/skills/apple-design/SKILL.md">
+          </label>
+          <p class="hint">Pick the sessions to take it. Each is asked, in its own terminal, to install the skill and use it.</p>
+          <div class="skill-sessions" id="skillSessions"></div>
+          <div class="composer-actions">
+            <button type="submit" class="primary" disabled>Pick a session</button>
+          </div>
+          <ul class="skill-results" id="skillResults"></ul>
+        </form>
+      </section>
       <section class="usage" id="usagePanel" hidden></section>
       <section class="activity" id="activityPanel" hidden></section>
       <section class="metrics" id="metrics"></section>

@@ -169,6 +169,26 @@ happening when a terminal was simply never closed, so a session quiet for longer
 longer blocks dispatch. It is still listed with its idle time so you can see what is worth
 closing. Nothing is killed for you.
 
+### Names, conversations and skills
+
+Sessions can message each other by name: Claude Code sessions with `SendMessage`, and a
+Codex thread once it has a name. The board reads each name from the CLI's own records,
+`~/.claude/sessions/<pid>.json` and `~/.codex/session_index.jsonl`.
+
+- A session with a name it was given shows it on its card, `🏷 symphony_market`. One whose
+  name the CLI picked itself, or that has none, gets a box with the folder's name filled
+  in. `Name it` types `/rename <name>` into that session's terminal tab.
+- A session that sent or received a message in the last 15 minutes shows
+  `🔗 <the other session>` on its card. Only Claude Code records messages, so a Codex
+  session's conversation is seen from the Claude side.
+- `Skills` in the top bar takes a GitHub link to a skill: a repository, a skill's folder,
+  or its `SKILL.md`. Pick one or more running sessions and `Send`. Each is asked in its
+  own terminal to install the skill where its CLI looks for skills, and to use it.
+
+Typing into a terminal works for iTerm and Terminal, only for a session the board can see
+running, and only from the board's own page. The first time, macOS asks whether the
+board's process may control iTerm.
+
 ## Activity
 
 `Activity` in the top bar opens a feed of what has happened across every project, newest
@@ -216,6 +236,9 @@ A: B's `blocked_by` list is saved, and auto-dispatch waits until A reaches a ter
 state. Click an arrow to remove it. The API rejects a dependency on the same card, an
 unknown card, or a cycle. Cards in a thread are ordered with what they depend on first, so
 a plan sits above the implementation that waits for it.
+
+Two cards whose sessions are messaging each other are joined by a dashed line with a head
+at each end, outside the dependency arrows.
 
 Drag a card onto a thread to assign it to that thread. A card let go anywhere else springs
 back to its place.
@@ -403,6 +426,8 @@ says nothing about creating or editing tasks.
 | `PATCH /api/issues/<id>` | edit any mutable field |
 | `DELETE /api/issues/<id>` | remove a task |
 | `POST /api/issues/<id>/reply` | answer the session's question |
+| `POST /api/sessions/rename` | `{pid, name}`: type `/rename <name>` into that session |
+| `POST /api/sessions/skill` | `{url, pids}`: ask those sessions to install a GitHub skill |
 | `GET /api/suggest-verify?path=` | propose a check command for a folder |
 | `GET /api/logs` | recent structured log entries |
 

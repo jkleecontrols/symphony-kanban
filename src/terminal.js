@@ -132,3 +132,72 @@ function baseName(comm) {
 async function activate(app) {
   await run("osascript", ["-e", `tell application "${app}" to activate`], { timeout: 10000 });
 }
+
+// Types a line into the terminal tab a session runs in, as if the person had, and presses
+// return. The text goes in first and return a moment later: a CLI that sees text and
+// return in one burst can take it for a paste and leave the line unsent.
+export async function typeInto(pid, text) {
+  const line = String(text ?? "").replace(/[\r\n]+/g, " ").trim();
+  if (!line) throw new Error("nothing to type");
+  const tty = await ttyOf(pid);
+  if (!tty) throw new Error("this session has no terminal to type into");
+  const host = await hostOf(pid);
+  const candidates = host ? [host] : ["iTerm2", "Terminal"];
+  for (const name of candidates) {
+    const script = name.startsWith("iTerm") ? itermTypeScript(name, tty, line) : name === "Terminal" ? terminalTypeScript(tty, line) : null;
+    if (!script) continue;
+    try {
+      const { stdout } = await run("osascript", ["-e", script], { timeout: 10000 });
+      if (stdout.trim() === "ok") return { app: name, tty };
+    } catch {
+      // that app is not running, or not scriptable; try the next
+    }
+  }
+  throw new Error(`could not find the ${host || "terminal"} tab on ${tty}; only iTerm and Terminal can be typed into`);
+}
+
+function appleString(value) {
+  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function itermTypeScript(name, tty, line) {
+  return `
+    tell application "${name}"
+      repeat with w in windows
+        repeat with t in tabs of w
+          repeat with s in sessions of t
+            if tty of s is "${tty}" then
+              tell s to write text ${appleString(line)} newline no
+              delay 0.3
+              tell s to write text ""
+              return "ok"
+            end if
+          end repeat
+        end repeat
+      end repeat
+    end tell
+    return "none"`;
+}
+
+// Terminal has no way to write to a tab without bringing it forward, so it is raised and
+// the keystrokes go to it.
+function terminalTypeScript(tty, line) {
+  return `
+    tell application "Terminal"
+      repeat with w in windows
+        repeat with t in tabs of w
+          if tty of t is "${tty}" then
+            set frontmost of w to true
+            set selected of t to true
+            activate
+            delay 0.2
+            tell application "System Events" to keystroke ${appleString(line)}
+            delay 0.3
+            tell application "System Events" to key code 36
+            return "ok"
+          end if
+        end repeat
+      end repeat
+    end tell
+    return "none"`;
+}

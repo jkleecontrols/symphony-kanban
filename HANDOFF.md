@@ -67,7 +67,22 @@ github.com/coreyhaines31/marketingskills (MIT) are installed in its `.claude/ski
 kept out of git by `.git/info/exclude`. The branch has one commit, `f2667a7`, **not
 pushed**. To use it: start a session in that folder and ask it to begin.
 
+## What changed on 2026-10-19
+
+**Session names, conversations, skills** (`src/peers.js`, README "Names, conversations
+and skills"). Cards show each session's name, or a `Name it` box that types `/rename` into
+its terminal. `🔗` marks sessions that messaged each other in the last 15 minutes, and the
+graph joins their cards with a dashed two-headed line. `Skills` in the top bar sends a
+GitHub skill link to the chosen sessions' terminals. Typing goes through AppleScript to
+the iTerm tab matched by tty (`typeInto` in `src/terminal.js`).
+
 ## Open
+
+- **Typing into a terminal was never watched end to end.** The page, the API guards and
+  the graph were checked; the AppleScript itself timed out when run from a Claude shell,
+  probably waiting on macOS's automation prompt. Try `Name it` on one session and watch the
+  tab. If Claude Code takes the line as a paste and does not send it, the 0.3 s delay
+  before return in `itermTypeScript` is the number to raise.
 
 - **`scripts/vault-sync.js` has an uncommitted change** left by a Codex session. Nobody in
   the later sessions wrote it or reviewed it. Read the diff before committing or

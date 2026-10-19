@@ -2,6 +2,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readActivity } from "./transcripts.js";
+import { isChosenName, readClaudeRegistry, readCodexNames } from "./peers.js";
 
 const run = promisify(execFile);
 
@@ -17,27 +18,44 @@ export async function scanExternalSessions(names = DEFAULT_NAMES) {
   const key = [...names].sort().join(",");
   if (cache.key === key && Date.now() - cache.at < CACHE_MS) return cache.sessions;
   const sessions = await scanNow(names).catch(() => []);
+  const [registry, codexNames] = await Promise.all([readClaudeRegistry(), readCodexNames()]);
   // What each session is doing, read from the CLI's own transcript.
   await Promise.all(sessions.map(async (session) => {
+    Object.assign(session, registry.get(session.pid) || {});
     Object.assign(session, await readActivity(session) || {});
+    nameSession(session, codexNames);
   }));
   cache = { at: Date.now(), key, sessions };
   return sessions;
 }
 
+// The name other sessions address this one by. Claude Code always has one, but only a
+// name set with /rename is kept; a Codex thread has one only once it was renamed.
+function nameSession(session, codexNames) {
+  if (session.name === "codex") {
+    session.session_name = codexNames.get(session.session_id) || null;
+    session.name_registered = Boolean(session.session_name);
+  } else {
+    session.session_name = session.session_name || null;
+    session.name_registered = isChosenName(session.name_source);
+  }
+}
+
 async function scanNow(names) {
   const wanted = new Set(names);
-  const { stdout } = await run("ps", ["-axo", "pid=,comm="], { maxBuffer: 4 * 1024 * 1024 });
+  const { stdout } = await run("ps", ["-axo", "pid=,tty=,comm="], { maxBuffer: 4 * 1024 * 1024 });
 
   const candidates = [];
   for (const line of stdout.split("\n")) {
-    const match = line.trim().match(/^(\d+)\s+(.*)$/);
+    const match = line.trim().match(/^(\d+)\s+(\S+)\s+(.*)$/);
     if (!match) continue;
-    const [, pid, comm] = match;
+    const [, pid, tty, comm] = match;
     // A GUI app bundle is not a CLI session; its helpers all report the same name.
     if (comm.includes("/Applications/") || comm.includes(".app/Contents/")) continue;
     const name = path.basename(comm);
-    if (wanted.has(name)) candidates.push({ pid, name });
+    // A tty means a terminal tab a person can see and the board can type into; a CLI's
+    // background helpers run without one.
+    if (wanted.has(name)) candidates.push({ pid, name, tty: tty === "??" ? null : tty });
   }
   if (!candidates.length) return [];
 
