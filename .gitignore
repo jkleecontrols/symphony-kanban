@@ -10,3 +10,6 @@ data/workspaces/
 *.lock
 *.tmp
 .DS_Store
+
+# Built desktop app (desktop/build.sh)
+dist/

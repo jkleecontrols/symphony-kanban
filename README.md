@@ -43,6 +43,20 @@ library and nothing else. Node 20 or newer.
 `data/issues.json` holds your real task list and is deliberately not tracked by git — it
 contains your folder paths and what you are working on.
 
+### As a Mac app
+
+```sh
+npm run app
+```
+
+builds `Symphony.app` (under 1 MB, no Electron) and installs it to `/Applications`. Opening
+it starts the board from this checkout if nothing is already answering on port 8787, and
+shows it in its own window. Closing the window leaves the server running so notifications
+keep coming; clicking the Dock icon brings it back. Quitting stops the server, but only if
+the app started it. Server output goes to `~/Library/Logs/Symphony.log`. The app remembers
+where this checkout is, so run `npm run app` again if you move it. It needs the Xcode
+command line tools for `swiftc`. `PORT=8790 npm run app` builds it for another port.
+
 ## Obsidian
 
 `scripts/vault-sync.js` symlinks every markdown file in a tracked project into an Obsidian

@@ -9,7 +9,8 @@
   },
   "scripts": {
     "start": "node src/cli.js start",
-    "test": "node --test"
+    "test": "node --test",
+    "app": "desktop/build.sh"
   },
   "engines": {
     "node": ">=20"
